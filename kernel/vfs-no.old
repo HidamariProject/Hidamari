@@ -1,0 +1,189 @@
+const std = @import("std");
+const platform = @import("platform.zig");
+
+const max_name_len = 256;
+
+const Device = struct {};
+const Cookie = [*]u8;
+
+pub const Error = error{
+    NotSupported,
+    NoDevice,
+    NoNodeFound,
+    NodeFound,
+    OutOfBounds,
+};
+
+pub const FileMode = packed struct {
+    const RWX = packed struct {
+        execute: bool = false,
+        write: bool = false,
+        read: bool = false,
+    };
+
+    everyone: RWX,
+    group: RWX,
+    user: RWX,
+    _padding: u7 = 0,
+
+    pub fn init(mode: u16) FileMode {
+        var ret: FileMode = undefined;
+        @ptrCast([*]align(@alignOf(FileMode)) u16, &ret) = mode;
+        return ret;
+    }
+
+    pub fn toInt(self: FileMode) u16 {
+        if (@sizeOf(FileMode) != @sizeOf(u16)) @compileError("Whoops!");
+        return @ptrCast([*]align(@alignOf(FileMode)) const u16, &self)[0];
+    }
+
+    pub fn toString(self: FileMode, out: []u8) ![]const u8 {
+        return try std.fmt.bufPrint(out, "{o}", .{self.toInt()});
+    }
+
+    pub const can_r = FileMode.RWX{ .read = true };
+    pub const can_rw = FileMode.RWX{ .read = true, .write = true };
+    pub const can_rwx = FileMode.RWX{ .read = true, .write = true, .execute = true };
+
+    pub const world_readable = FileMode{ .user = FileMode.can_rw, .group = FileMode.can_r, .everyone = FileMode.can_r };
+    pub const world_writable = FileMode{ .user = FileMode.can_rw, .group = FileMode.can_rw, .everyone = FileMode.can_rw };
+    pub const world_exec_writable = FileMode{ .user = FileMode.can_rwx, .group = FileMode.can_rwx, .everyone = FileMode.can_rwx };
+};
+
+pub const FileType = enum {
+    File, Directory, BlockDevice, CharacterDevice, SymLink, Socket, Fifo, Null
+};
+
+pub const OpenFlags = struct {
+    read: bool = true,
+    write: bool = false,
+    truncate: bool = false,
+};
+
+pub const Seek = enum {
+    Absolute,
+    Forward,
+    Backward,
+};
+
+pub const Stat = struct {
+    name: []const u8 = "[null]",
+    type: FileType = .Null,
+
+    mode: FileMode = FileMode.world_writable,
+    uid: u32 = 0,
+    gid: u32 = 0,
+
+    inode: u64 = 0,
+    size: u64 = 0,
+
+    access_time: i64 = 0,
+    mod_time: i64 = 0,
+    create_time: i64 = 0,
+}
+
+pub const NodeOps = struct {
+    seek: ?fn (self: *Node, offset: i64, whence: Seek) anyerror!u64 = null,
+    read: ?fn (self: *Node, buffer: []u8) anyerror!usize = null,
+    write: ?fn (self: *Node, buffer: []const u8) anyerror!usize = null,
+    close: ?fn(self: *Node) anyerror!void = null,
+
+    readDir: ?fn (self: *Node, offset: u64, buffer: []*Node) anyerror!usize = null,
+    create: ?fn(self: *Node, name: []const u8, mode: FileMode, type: FileType) anyerror!*Node = null,
+    open: ?fn (self: *Node, name: []const u8, open_flags: OpenFlags) anyerror!void = null,
+
+    stat: ?fn(self: *Node) anyerror!Stat = null,
+    link: ?fn(self: *Node, name: []const u8, other_node: *Node) anyerror!void = null,
+};
+
+pub const Node = struct {
+    stat_cache: Stat = Stat{},
+    cookie: ?Cookie = null,
+    file_system: ?*FileSystem = null,
+    allocator: ?*std.mem.Allocator = null,
+
+    ops: NodeOps = NodeOps{},
+
+    pub fn getCookie(self: *Node, comptime T: type) *T {
+        const algn = @alignOf(*T);
+        return @ptrCast(*T, @alignCast(algn, self.cookie.?));
+    }
+
+    pub fn init(self: *const Node, allocator: ?*std.mem.Allocator, name: []?const u8) anyerror!*Node {
+        if (self.ops.init == null) return Error.NotSupported;
+        return self.ops.init.?(self, allocator
+    }
+
+    pub fn create(self: *Node, name: []const u8, mode: FileMode, typ: FileType) anyerror!*Node {
+        if (self.ops.create == null) return Error.NotSupported;
+        return self.ops.create.?(self, name, mode, typ);
+    }
+
+    pub fn open(self: *Node, name: []const u8, open_flags: OpenFlags) anyerror!void {
+        if (self.ops.open == null) return Error.NotSupported;
+        return self.ops.open.?(self, name open_flags);
+    }
+
+    pub fn seek(self: *Node, offset: i64, whence: Seek) anyerror!u64 {
+        if (self.type == .Null) return 0;
+        if (self.ops.seek == null) return Err.NotSupported;
+        return self.ops.seek.?(self, offset, whence);
+    }
+
+    pub fn read(self: *Node, buffer: []u8) anyerror!usize {
+        if (self.type == .Null) return @as(usize, 0);
+        if (self.ops.read == null) return Error.NotSupported;
+        return self.ops.read.?(self, buffer);
+    }
+
+    pub fn write(self: *Node, buffer: []const u8) anyerror!usize {
+        if (self.type == .Null) return buffer.len;
+        if (self.ops.write == null) return Error.NotSupported;
+        return self.ops.write.?(self, buffer);
+    }
+
+    pub fn close(self: *Node) anyerror!void {
+        if (self.ops.close == null) return;
+        return self.ops.close.?(self);
+    }
+
+    pub fn readDir(self: *Node, offset: u64, buffer: []*DirEntry) anyerror!usize {
+        if (self.ops.readDir == null) return Error.NotSupported;
+        return self.ops.readDir.?(self, offset, buffer);
+    }
+
+    pub fn stat(self: *Node) anyerror!Stat {
+        if (self.type == .Null) return this.stat_cache;
+        if (self.ops.stat == null) return Error.NotSupported;
+        return self.ops.stat.?(self);
+    }
+};
+
+pub const FileSystemOps = struct {
+    init: fn (fs: *FileSystem, allocator: *std.mem.Allocator, dev: ?*Device, args: ?[]const u8) anyerror!*Node,
+};
+
+pub const FileSystem = struct {
+    name: []const u8,
+    cookie: ?Cookie = null,
+    ops: FileSystemOps,
+    allocator: ?*std.mem.Allocator = null,
+
+    pub fn getCookie(self: *FileSystem, comptime T: type) *T {
+        const algn = @alignOf(*T);
+        return @ptrCast(*T, @alignCast(algn, self.cookie.?));
+    }
+
+    pub fn init(self: *const FileSystem, allocator: *std.mem.Allocator, dev: ?*Device, args: ?[]const u8) anyerror!*Node {
+        var newInstance = try allocator.create(FileSystem);
+        errdefer { allocator.destroy(newInstance); }
+        newInstance.name = self.name;
+        newInstance.ops = self.ops;
+        newInstance.allocator = allocator;
+        return try newInstance.ops.init(newInstance, allocator, dev, args);
+    }
+};
+
+pub var null_node = &Node{};
+pub var null_file = &File{.node = null_node};
+

@@ -1,0 +1,60 @@
+const std = @import("std");
+
+inline fn copyStruct(dst: anytype, src: anytype) void {
+    comptime var tInfo = @typeInfo(@TypeOf(src));
+    inline for (tInfo.Struct.fields) |field| {
+        @field(dst, field.name) = @field(src, field.name);
+    }
+}
+
+pub const Cookie = c_void;
+
+pub const NodeType = enum {
+    None,
+    Regular,
+    Directory,
+    BlockDev,
+    CharDev,
+    SymLink,
+    Socket,
+    Fifo
+};
+
+pub const NodeOps = struct {
+    
+};
+
+pub const Node = struct {
+    op: NodeOps,
+    cookie: *Cookie,
+
+    type: NodeType,
+    flags: NodeFlags,
+    mode: FileMode,
+    size: u64,
+    index: u64,
+    path: []const u8,
+};
+
+pub const FsOps = struct {
+    init: fn(self: *Fs, dev: Device, args: []const u8) anyerror!void,
+    deinit: fn(self: *Fs),
+}
+
+pub const Fs = struct {
+    ops: FsOps,
+    cookie: *Cookie,
+    name: []const u8,
+
+    const Self = @This();
+    // Black magic incoming
+    fn init(a: anytype, b: anytype, c: anytype) anyerror!Fs {
+        if (@TypeOf(a) == *Self) {
+            var ret = *a;
+            try a.ops.init(&ret, b, c);
+            return ret;
+        } else {
+            return .{.ops = a, .name = b};
+        }
+    }
+};

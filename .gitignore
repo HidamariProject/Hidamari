@@ -1,0 +1,8 @@
+zig-cache/
+*.obj
+*.wasm
+*.o
+*.pdb
+*.efi
+NvVars
+output/rootfs/bin/*
