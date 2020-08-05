@@ -236,7 +236,6 @@ pub const Function = struct {
         comptime var tInfo = @typeInfo(@TypeOf(args));
         var trueArgs: [tInfo.Struct.fields.len][32]u8 = undefined;
         var cArgs: [tInfo.Struct.fields.len + 1][*c]u8 = undefined;
-        // @compileLog(tInfo.Struct.fields.len);
         inline for (tInfo.Struct.fields) |field, i| {
             switch (@typeInfo(field.field_type)) {
                 .ComptimeInt, .Int => try fmt.bufPrint(trueArgs[i][0..], "{d}\x00", .{@field(args, field.name)}),
@@ -303,7 +302,7 @@ pub const Runtime = struct {
         return RuntimeStack.init(rawstack);
     }
 
-    pub fn destroy(self: Runtime) void {
+    pub fn deinit(self: Runtime) void {
         c.m3_FreeRuntime(self._rt);
         c.m3_FreeEnvironment(self._env);
     }

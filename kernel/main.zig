@@ -1,11 +1,10 @@
 const std = @import("std");
 const builtin = std.builtin;
+
 const platform = @import("platform.zig");
-
 const w3 = @import("wasm3.zig");
-
 const vfs = @import("vfs.zig");
-const tmpfs = @import("fs/tmpfs.zig");
+const task = @import("task.zig");
 
 const utsname = @import("utsname.zig");
 
@@ -22,42 +21,29 @@ pub fn panic(message: []const u8, stack_trace: ?*builtin.StackTrace) noreturn {
     platform.halt();
 }
 
-fn log(a: anytype) void {
-    platform.earlyprintf("LOG: {}\r\n", .{a});
-}
-
 const binInit = @embedFile("init.wasm");
 
-var bigBuffer: [32 * 1024 * 1024]u8 = undefined;
-
 pub fn main() void {
+    // Initialize platform
     platform.init();
+    // Run sanity tests
     platform.earlyprintk("Running hardware integrity tests. If the system crashes during these, that's your problem, not mine.\r\n");
     allSanityChecks();
     platform.earlyprintk("Tests passed.\r\n");
+    // Show kernel information
     var info = utsname.uname();
     platform.earlyprintf("{} {} {} {}\r\n", .{ info.sys_name, info.release, info.version, info.machine });
+    // Create allocator. TODO: good one
+    const static_size = 32 * 1024 * 1024;
+    var big_buffer = platform.internal_malloc(static_size).?;
+    var allocator = &std.heap.FixedBufferAllocator.init(big_buffer[0..static_size]).allocator;
 
-    var allocator = &std.heap.FixedBufferAllocator.init(bigBuffer[0..]).allocator;
-    log(vfs.null_node.write("hello world\r\n"));
-    var fs = tmpfs.TmpFs.init(allocator, null) catch unreachable;
-    var dir = fs.open("testdir", .{ .create = true, .directory = true }, vfs.FileMode.world_exec_writable) catch unreachable;
-    var dir2 = fs.open("mounted", .{ .create = true, .directory = true }, vfs.FileMode.world_exec_writable) catch unreachable;
-    var fs2 = tmpfs.TmpFs.init(allocator, null) catch unreachable;
-    dir2.mount(fs2) catch unreachable;
-    var nod = dir.open("test.txt", .{ .write = true, .create = true }, vfs.FileMode.world_writable) catch unreachable;
-    log(nod);
-    log(nod.write("this is text"));
-    //nod.close() catch unreachable;
-    dir.unlink("test.txt") catch unreachable;
-    var dirents: [16]vfs.DirEntry = undefined;
-    var n = fs.readDir(0, dirents[0..]) catch unreachable;
-    log(n);
-    for (dirents[0..n]) |entry| {
-        platform.earlyprintf("File: {} - ino={}\r\n", .{ entry.name, entry.inode });
-    }
-    platform.earlyprintf("Stat: {}\r\n", .{dir2.stat()});
-    platform.halt();
+    var null_node = vfs.NullNode.init();
+    platform.earlyprintf("ret: {}\r\n", .{null_node.write(0, "Hello World\r\n")});
+
+    //task.tryit(allocator) catch unreachable;
+    // We shouldn't reach this
+    @panic("Kernel attempted to exit!");
 }
 
 fn neveragain() void {
