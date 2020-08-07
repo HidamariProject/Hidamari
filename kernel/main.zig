@@ -60,7 +60,9 @@ pub fn main() void {
     platform.earlyprintf("readback: {}\r\n", .{file.node.read(0, buf[0..])});
     var files: [8]vfs.File = undefined;
     var nf = fs.readDir(0, files[0..]) catch unreachable;
-    for (files[0..nf]) |fil| { platform.earlyprintf("files->{} = {};\r\n", .{fil.name(), fil.node.stat}); }
+    for (files[0..nf]) |fil| {
+        platform.earlyprintf("files->{} = {};\r\n", .{ fil.name(), fil.node.stat });
+    }
     //task.tryit(allocator) catch unreachable;
     // We shouldn't reach this
     @panic("kernel attempted to exit!");

@@ -18,9 +18,7 @@ const NodeImpl = struct {
         // TODO
     };
 
-    pub fn init() *Node {
-        
-    }
+    pub fn init() *Node {}
 };
 
 const FsImpl = struct {
@@ -44,7 +42,7 @@ const FsImpl = struct {
 
         try zipfile.?.read(0, fs_impl.zip_data);
         var mz_ok = c.mz_zip_reader_init_mem(&fs_impl.archive, &fs_impl.zip_data, fs_impl.zip_data.mem, 0);
-        if (!mz_ok) return vfs.Error.NoSuchFile;        
+        if (!mz_ok) return vfs.Error.NoSuchFile;
 
         return root_node;
     }

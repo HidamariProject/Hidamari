@@ -196,7 +196,9 @@ const NodeImpl = struct {
         if (node_impl.children) |children| {
             for (children.items) |child, i| {
                 if (std.mem.eql(u8, child.?.name(), name)) {
-                    if (child.?.node.ops.unlink_me) |unlink_me_fn| { try unlink_me_fn(child.?.node); }
+                    if (child.?.node.ops.unlink_me) |unlink_me_fn| {
+                        try unlink_me_fn(child.?.node);
+                    }
                     _ = node_impl.children.?.swapRemove(i);
                     return;
                 }
@@ -224,7 +226,7 @@ const NodeImpl = struct {
     pub fn unlink_me(self: *Node) !void {
         var node_impl = myImpl(self);
         if (node_impl.children) |children| {
-           if (children.items.len != 0) return vfs.Error.NotEmpty;
+            if (children.items.len != 0) return vfs.Error.NotEmpty;
         }
 
         node_impl.n_links.unref();

@@ -6,14 +6,7 @@ const RefCount = util.RefCount;
 
 pub const max_name_len = 256;
 
-pub const Error = error{
-    NotImplemented,
-    NotDirectory,
-    NotFile,
-    NoSuchFile,
-    FileExists,
-    NotEmpty
-};
+pub const Error = error{ NotImplemented, NotDirectory, NotFile, NoSuchFile, FileExists, NotEmpty };
 
 /// Node represents a FileSystem VNode
 /// There should only be ONE VNode in memory per file at a time!
@@ -156,7 +149,9 @@ pub const Node = struct {
     }
 
     pub fn link(self: *Node, name: []const u8, new_node: *Node) !File {
-        if (self.ops.link) |link_fn| { return try link_fn(self, name, new_node); }
+        if (self.ops.link) |link_fn| {
+            return try link_fn(self, name, new_node);
+        }
         return Error.NotImplemented;
     }
 
@@ -168,7 +163,9 @@ pub const Node = struct {
     }
 
     pub fn readDir(self: *Node, offset: u64, files: []File) !usize {
-        if (self.ops.readDir) |readDir_fn| { return try readDir_fn(self, offset, files); }
+        if (self.ops.readDir) |readDir_fn| {
+            return try readDir_fn(self, offset, files);
+        }
         return Error.NotImplemented;
     }
 };
@@ -180,7 +177,9 @@ pub const File = struct {
     name_len: usize,
 
     pub fn name(self: File) []const u8 {
-        if (self.name_ptr) |name_str| { return name_str; }
+        if (self.name_ptr) |name_str| {
+            return name_str;
+        }
         return self.name_buf[0..self.name_len];
     }
 };
@@ -197,7 +196,7 @@ pub const FileSystem = struct {
     raw_allocator: *std.mem.Allocator = undefined,
     arena_allocator: std.heap.ArenaAllocator = undefined,
     allocator: *std.mem.Allocator = undefined,
- 
+
     pub fn init(name: []const u8, ops: FileSystem.Ops) FileSystem {
         return .{ .name = name, .ops = ops };
     }
@@ -250,7 +249,6 @@ pub const ZeroNode = struct {
         return buffer.len;
     }
 };
-
 /// Read-only node that serves a fixed number of bytes
 // TODO: better name?
 pub const ReadOnlyNode = struct {
