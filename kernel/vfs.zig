@@ -12,7 +12,7 @@ pub const Error = error{
     NotFile,
     NoSuchFile,
     FileExists,
-    NotEmpty,
+    NotEmpty
 };
 
 /// Node represents a FileSystem VNode
@@ -95,8 +95,9 @@ pub const Node = struct {
 
         find: ?fn (self: *Node, name: []const u8) anyerror!File = null,
         create: ?fn (self: *Node, name: []const u8, typ: Node.Type, mode: Node.Mode) anyerror!File = null,
-        attach: ?fn (self: *Node, name: []const u8, other_node: *Node) anyerror!File = null,
+        link: ?fn (self: *Node, name: []const u8, other_node: *Node) anyerror!File = null,
         unlink: ?fn (self: *Node, name: []const u8) anyerror!void = null,
+        readDir: ?fn (self: *Node, offset: u64, files: []File) anyerror!usize = null,
 
         unlink_me: ?fn (self: *Node) anyerror!void = null,
     };
@@ -154,8 +155,8 @@ pub const Node = struct {
         return Error.NotImplemented;
     }
 
-    pub fn attach(self: *Node, name: []const u8, new_node: *Node) !Node {
-        if (self.ops.attach) |attach_fn| { return try attach_fn(self, name, new_node); }
+    pub fn link(self: *Node, name: []const u8, new_node: *Node) !File {
+        if (self.ops.link) |link_fn| { return try link_fn(self, name, new_node); }
         return Error.NotImplemented;
     }
 
@@ -165,12 +166,23 @@ pub const Node = struct {
         }
         return Error.NotImplemented;
     }
+
+    pub fn readDir(self: *Node, offset: u64, files: []File) !usize {
+        if (self.ops.readDir) |readDir_fn| { return try readDir_fn(self, offset, files); }
+        return Error.NotImplemented;
+    }
 };
 
 pub const File = struct {
     node: *Node,
-    name: []const u8,
+    name_ptr: ?[]const u8,
     name_buf: [max_name_len]u8,
+    name_len: usize,
+
+    pub fn name(self: File) []const u8 {
+        if (self.name_ptr) |name_str| { return name_str; }
+        return self.name_buf[0..self.name_len];
+    }
 };
 
 /// FileSystem defines a FileSystem
@@ -182,8 +194,10 @@ pub const FileSystem = struct {
     name: []const u8,
     ops: FileSystem.Ops,
     cookie: Cookie = null,
+    raw_allocator: *std.mem.Allocator = undefined,
+    arena_allocator: std.heap.ArenaAllocator = undefined,
     allocator: *std.mem.Allocator = undefined,
-
+ 
     pub fn init(name: []const u8, ops: FileSystem.Ops) FileSystem {
         return .{ .name = name, .ops = ops };
     }
@@ -191,9 +205,12 @@ pub const FileSystem = struct {
     /// Mount a disk (or nothing) using a FileSystem.
     /// `device` should already be opened before calling mount().
     pub fn mount(self: FileSystem, allocator: *std.mem.Allocator, device: ?*Node, args: ?[]const u8) anyerror!*Node {
-        var fs = try allocator.create(FileSystem);
-        fs.* = .{ .name = self.name, .ops = self.ops, .allocator = allocator };
-        errdefer allocator.destroy(fs);
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        errdefer arena.deinit();
+
+        var fs = try arena.allocator.create(FileSystem);
+        fs.* = .{ .name = self.name, .ops = self.ops, .raw_allocator = allocator, .arena_allocator = arena, .allocator = &arena.allocator };
+        errdefer arena.allocator.destroy(fs);
 
         return try fs.ops.mount(fs, device, args);
     }
@@ -231,5 +248,25 @@ pub const ZeroNode = struct {
     pub fn read(self: *Node, offset: u64, buffer: []u8) !usize {
         std.mem.set(u8, buffer, 0);
         return buffer.len;
+    }
+};
+
+/// Read-only node that serves a fixed number of bytes
+// TODO: better name?
+pub const ReadOnlyNode = struct {
+    const ops: Node.Ops = .{
+        .read = ReadOnlyNode.read,
+    };
+
+    pub fn init(buffer: []const u8) Node {
+        return Node.init(ReadOnlyNode, buffer, .{ .size = buffer.len, .blocks = buffer.len }, null);
+    }
+
+    pub fn read(self: *Node, offset: u64, buffer: []u8) !usize {
+        var my_data = self.cookie.?.as([]const u8);
+        var trueOff = @truncate(usize, offset);
+        var trueEnd = if (trueOff + buffer.len > my_data.len) my_data.len else trueOff + buffer.len;
+        std.mem.copy(u8, buffer, my_data[trueOff..trueEnd]);
+        return trueEnd - trueOff;
     }
 };

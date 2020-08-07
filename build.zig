@@ -42,14 +42,23 @@ pub fn build(b: *Builder) void {
         ckern.setTarget(CrossTarget{.cpu_arch = kernelTarget.cpu_arch, .cpu_model = .baseline});
         ckern.setBuildMode(mode);
 
+        const miniz = b.addStaticLibrary("miniz", null);
+        miniz.addIncludeDir("kernel");
+        miniz.addIncludeDir("kernel/klibc");
+        miniz.addIncludeDir("kernel/miniz");
+        miniz.addCSourceFile("kernel/miniz/miniz.c", &[_][]const u8{kernelClangTarget});
+        miniz.setTarget(CrossTarget{.cpu_arch = kernelTarget.cpu_arch, .cpu_model = .baseline});
+        miniz.setBuildMode(mode);
+
         const exe = b.addExecutable(kernelBinary, "kernel/main.zig");
         exe.addIncludeDir("kernel");
         exe.addIncludeDir("kernel/klibc");
         exe.setTarget(kernelTarget);
         exe.setBuildMode(mode);
         exe.setOutputDir(kernelOutputDir);
-        exe.linkLibrary(ckern);
         exe.linkLibrary(wasm3);
+        exe.linkLibrary(ckern);
+        exe.linkLibrary(miniz);
         exe.strip = true;
 
         kernel_step.dependOn(&exe.step);

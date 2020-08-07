@@ -29,7 +29,9 @@ const NodeImpl = struct {
 
         .find = NodeImpl.find,
         .create = NodeImpl.create,
+        .link = NodeImpl.link,
         .unlink = NodeImpl.unlink,
+        .readDir = NodeImpl.readDir,
 
         .unlink_me = NodeImpl.unlink_me,
     };
@@ -141,7 +143,7 @@ const NodeImpl = struct {
         if (node_impl.children) |children| {
             for (children.items) |child| {
                 if (child == null) continue;
-                if (std.mem.eql(u8, child.?.name, name)) return child.?;
+                if (std.mem.eql(u8, child.?.name(), name)) return child.?;
             }
             return vfs.Error.NoSuchFile;
         }
@@ -152,7 +154,7 @@ const NodeImpl = struct {
         var node_impl = myImpl(self);
         if (node_impl.children) |children| {
             for (children.items) |child| {
-                if (std.mem.eql(u8, child.?.name, name)) return vfs.Error.FileExists;
+                if (std.mem.eql(u8, child.?.name(), name)) return vfs.Error.FileExists;
             }
 
             var now = platform.getTimeNano();
@@ -163,11 +165,27 @@ const NodeImpl = struct {
             var new_file: File = undefined;
             std.mem.copy(u8, new_file.name_buf[0..], name);
 
-            new_file.name = new_file.name_buf[0..name.len];
+            new_file.name_len = name.len;
             new_file.node = new_node;
-
             try node_impl.children.?.append(new_file);
             myImpl(new_node).n_links.ref();
+            return new_file;
+        }
+        return vfs.Error.NotDirectory;
+    }
+
+    pub fn link(self: *Node, name: []const u8, new_node: *Node) !File {
+        var node_impl = myImpl(self);
+        if (node_impl.children != null) {
+            if (NodeImpl.find(self, name) catch null != null) return vfs.Error.FileExists;
+            var new_file: File = undefined;
+            std.mem.copy(u8, new_file.name_buf[0..], name);
+
+            new_file.name_len = name.len;
+            new_file.node = new_node;
+            if (new_node.file_system == self.file_system) {
+                myImpl(new_node).n_links.ref();
+            }
             return new_file;
         }
         return vfs.Error.NotDirectory;
@@ -177,13 +195,28 @@ const NodeImpl = struct {
         var node_impl = myImpl(self);
         if (node_impl.children) |children| {
             for (children.items) |child, i| {
-                if (std.mem.eql(u8, child.?.name, name)) {
+                if (std.mem.eql(u8, child.?.name(), name)) {
                     if (child.?.node.ops.unlink_me) |unlink_me_fn| { try unlink_me_fn(child.?.node); }
                     _ = node_impl.children.?.swapRemove(i);
                     return;
                 }
             }
             return vfs.Error.NoSuchFile;
+        }
+        return vfs.Error.NotDirectory;
+    }
+
+    pub fn readDir(self: *Node, offset: u64, files: []vfs.File) !usize {
+        var node_impl = myImpl(self);
+        if (node_impl.children) |children| {
+            var total: usize = 0;
+            for (children.items) |child, i| {
+                if (i < offset) continue;
+                if (total == files.len) break;
+                files[total] = child.?;
+                total += 1;
+            }
+            return total;
         }
         return vfs.Error.NotDirectory;
     }
