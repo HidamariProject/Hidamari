@@ -6,17 +6,18 @@ const RefCount = util.RefCount;
 
 pub const max_name_len = 256;
 
-pub const Error = error {
+pub const Error = error{
     NotImplemented,
     NotDirectory,
     NotFile,
     NoSuchFile,
+    FileExists,
+    NotEmpty,
 };
 
 /// Node represents a FileSystem VNode
 /// There should only be ONE VNode in memory per file at a time!
 /// Any other situation may cause unexpected results!
-
 pub const Node = struct {
     pub const Mode = packed struct {
         // Remember, LSB first! exec, write, read (xwr) & everyone, group, user (egu) order!
@@ -28,10 +29,24 @@ pub const Node = struct {
         usr: Node.Mode.RWX = .{},
         _padding: u7 = 0,
 
-        pub fn init(val: u16) Mode { var m :Mode = .{}; m.set(val); return m; }
+        pub fn init(val: u16) Mode {
+            var m: Mode = .{};
+            m.set(val);
+            return m;
+        }
 
-        pub fn get(self: *const Mode) u16 { return @ptrCast(*u16, self).*; }
-        pub fn set(self: *Mode, val: u16) void { @ptrCast(*u16, self).* = val; }
+        pub fn get(self: *const Mode) u16 {
+            return @ptrCast(*u16, self).*;
+        }
+        pub fn set(self: *Mode, val: u16) void {
+            @ptrCast(*u16, self).* = val;
+        }
+
+        pub const all = Mode{
+            .all = .{ .x = true, .w = true, .r = true },
+            .grp = .{ .x = true, .w = true, .r = true },
+            .usr = .{ .x = true, .w = true, .r = true },
+        };
     };
 
     pub const Flags = struct {
@@ -45,7 +60,7 @@ pub const Node = struct {
         Directory,
         BlockDevice,
         CharacterDevice,
-        SymLink, 
+        SymLink,
         Socket,
         Fifo,
     };
@@ -65,20 +80,25 @@ pub const Node = struct {
 
         links: i64 = 0,
         blocks: u64 = 0,
+        block_size: u64 = 1,
         flags: Node.Flags = .{},
 
         inode: u64 = 0,
     };
 
     pub const Ops = struct {
-        open: ?fn(self: *Node) anyerror!void = null,
-        close: ?fn(self: *Node) anyerror!void = null,
+        open: ?fn (self: *Node) anyerror!void = null,
+        close: ?fn (self: *Node) anyerror!void = null,
 
-        read: ?fn(self: *Node, offset: u64, buffer: []u8) anyerror!usize = null,
-        write: ?fn(self: *Node, offset: u64, buffer: []const u8) anyerror!usize = null,
+        read: ?fn (self: *Node, offset: u64, buffer: []u8) anyerror!usize = null,
+        write: ?fn (self: *Node, offset: u64, buffer: []const u8) anyerror!usize = null,
 
-        find: ?fn(self: *Node, name: []const u8) anyerror!File = null,
-        create: ?fn(self: *Node, name: []const u8, typ: Node.Type, mode: Node.Mode) anyerror!File = null,
+        find: ?fn (self: *Node, name: []const u8) anyerror!File = null,
+        create: ?fn (self: *Node, name: []const u8, typ: Node.Type, mode: Node.Mode) anyerror!File = null,
+        attach: ?fn (self: *Node, name: []const u8, other_node: *Node) anyerror!File = null,
+        unlink: ?fn (self: *Node, name: []const u8) anyerror!void = null,
+
+        unlink_me: ?fn (self: *Node) anyerror!void = null,
     };
 
     stat: Stat = .{},
@@ -89,36 +109,60 @@ pub const Node = struct {
     cookie: Cookie = null,
 
     pub fn init(ops: Node.Ops, cookie: Cookie, stat: ?Stat, file_system: ?*FileSystem) Node {
-        return .{ .ops = ops, .cookie = cookie, .stat = if (stat != null) stat else .{}, .file_system = file_system };
+        return .{ .ops = ops, .cookie = cookie, .stat = if (stat != null) stat.? else .{}, .file_system = file_system };
     }
 
     pub fn open(self: *Node) !void {
-        if (self.ops.open) |open_fn| { try open_fn(self); }
+        if (self.ops.open) |open_fn| {
+            try open_fn(self);
+        }
         self.opens.ref();
     }
 
     pub fn close(self: *Node) !void {
-        if (self.ops.close) |close_fn| { try close_fn(self); }
+        if (self.ops.close) |close_fn| {
+            try close_fn(self);
+        }
         self.opens.unref();
     }
 
     pub fn read(self: *Node, offset: u64, buffer: []u8) !usize {
-        if (self.ops.read) |read_fn| { return try read_fn(self, offset, buffer); }
+        if (self.ops.read) |read_fn| {
+            return try read_fn(self, offset, buffer);
+        }
         return Error.NotImplemented;
     }
 
     pub fn write(self: *Node, offset: u64, buffer: []const u8) !usize {
-        if (self.ops.write) |write_fn| { return try write_fn(self, offset, buffer); }
+        if (self.ops.write) |write_fn| {
+            return try write_fn(self, offset, buffer);
+        }
         return Error.NotImplemented;
     }
 
     pub fn find(self: *Node, name: []const u8) !File {
-        if (self.ops.find) |find_fn| { return try find_fn(self, name); }
+        if (self.ops.find) |find_fn| {
+            return try find_fn(self, name);
+        }
         return Error.NotImplemented;
     }
 
     pub fn create(self: *Node, name: []const u8, typ: Node.Type, mode: Node.Mode) !File {
-        if (self.ops.create) |create_fn| { return try create_fn(name, typ, mode); }
+        if (self.ops.create) |create_fn| {
+            return try create_fn(self, name, typ, mode);
+        }
+        return Error.NotImplemented;
+    }
+
+    pub fn attach(self: *Node, name: []const u8, new_node: *Node) !Node {
+        if (self.ops.attach) |attach_fn| { return try attach_fn(self, name, new_node); }
+        return Error.NotImplemented;
+    }
+
+    pub fn unlink(self: *Node, name: []const u8) !void {
+        if (self.ops.unlink) |unlink_fn| {
+            return try unlink_fn(self, name);
+        }
         return Error.NotImplemented;
     }
 };
@@ -130,10 +174,9 @@ pub const File = struct {
 };
 
 /// FileSystem defines a FileSystem
-
 pub const FileSystem = struct {
-    const Ops = {
-        mount: fn(self: *FileSystem, device: ?*Node, args: []const u8) anyerror!*Node,
+    pub const Ops = struct {
+        mount: fn (self: *FileSystem, device: ?*Node, args: ?[]const u8) anyerror!*Node,
     };
 
     name: []const u8,
@@ -147,38 +190,43 @@ pub const FileSystem = struct {
 
     /// Mount a disk (or nothing) using a FileSystem.
     /// `device` should already be opened before calling mount().
-
-    pub fn mount(self: FileSystem, allocator: *std.mem.Allocator, device: ?*Node, args: []const u8) anyerror!*Node {
+    pub fn mount(self: FileSystem, allocator: *std.mem.Allocator, device: ?*Node, args: ?[]const u8) anyerror!*Node {
         var fs = try allocator.create(FileSystem);
-        fs.* = .{ .name = self.name, .ops = self.ops, .allocator = allocator; }
-        errdefer { allocator.destroy(fs); }
+        fs.* = .{ .name = self.name, .ops = self.ops, .allocator = allocator };
+        errdefer allocator.destroy(fs);
 
         return try fs.ops.mount(fs, device, args);
     }
 };
 
 /// "/dev/null" type node
-
 pub const NullNode = struct {
     const ops: Node.Ops = .{
         .read = NullNode.read,
         .write = NullNode.write,
     };
 
-    pub fn init() Node { return Node.init(NullNode.ops, null, null, null); }
+    pub fn init() Node {
+        return Node.init(NullNode.ops, null, null, null);
+    }
 
-    pub fn read(self: *Node, offset: u64, buffer: []u8) !usize { return 0; }
-    pub fn write(self: *Node, offset: u64, buffer: []const u8) !usize { return buffer.len; }
+    pub fn read(self: *Node, offset: u64, buffer: []u8) !usize {
+        return 0;
+    }
+    pub fn write(self: *Node, offset: u64, buffer: []const u8) !usize {
+        return buffer.len;
+    }
 };
 
 /// "/dev/zero" type node
-
 pub const ZeroNode = struct {
     const ops: Node.Ops = .{
         .read = ZeroNode.read,
     };
 
-    pub fn init() Node { return Node.init(ZeroNode.ops, null, null, null); }
+    pub fn init() Node {
+        return Node.init(ZeroNode.ops, null, null, null);
+    }
 
     pub fn read(self: *Node, offset: u64, buffer: []u8) !usize {
         std.mem.set(u8, buffer, 0);

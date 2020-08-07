@@ -4,9 +4,7 @@ const util = @import("util.zig");
 
 const Cookie = util.Cookie;
 
-pub const Error = error {
-    NoSuchTask,
-};
+pub const Error = error{NoSuchTask};
 
 pub const Task = struct {
     pub const EntryPoint = fn (task: *Task) callconv(.Async) void;

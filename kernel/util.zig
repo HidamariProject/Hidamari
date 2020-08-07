@@ -13,7 +13,6 @@ pub fn asCookie(a: anytype) *RawCookie {
 }
 
 /// Reference counting helper
-
 pub const RefCount = struct {
     refs: usize = 0,
 

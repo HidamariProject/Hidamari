@@ -8,15 +8,26 @@ const task = @import("task.zig");
 
 const utsname = @import("utsname.zig");
 
+const tmpfs = @import("fs/tmpfs.zig");
+
 extern fn allSanityChecks() callconv(.C) void;
 pub inline fn nop() void {}
 
 pub fn panic(message: []const u8, stack_trace: ?*builtin.StackTrace) noreturn {
     if (platform.early()) {
-        platform.earlyprintk("Early system initialization failure: ");
+        platform.earlyprintk("KERNEL PANIC! Early system initialization failure: ");
         platform.earlyprintk(message);
         platform.earlyprintk("\r\n");
-        platform.earlyprintf("-> {x}\r\n", .{@returnAddress()});
+        platform.earlyprintf("!!! -> 0x{x}\r\n", .{@returnAddress()});
+        if (@errorReturnTrace()) |trace| {
+            for (trace.instruction_address[0..trace.index]) |func, i| {
+                platform.earlyprintf("{} -> 0x{x}\r\n", .{ i, func });
+            }
+        } else {
+            platform.earlyprintk("Kernel built without stack trace support.\r\n");
+        }
+        platform.earlyprintk("End stack trace.\r\n");
+        platform.earlyprintk("\r\nWell, that didn't go well. Perhaps we should try again? Press the power button to reset.\r\n");
     }
     platform.halt();
 }
@@ -41,9 +52,16 @@ pub fn main() void {
     var null_node = vfs.NullNode.init();
     platform.earlyprintf("ret: {}\r\n", .{null_node.write(0, "Hello World\r\n")});
 
+    var fs = tmpfs.Fs.mount(allocator, null, null) catch unreachable;
+    var file = fs.create("file.txt", .File, vfs.Node.Mode.all) catch unreachable;
+    platform.earlyprintf("another ret: {}\r\n", .{file.node.write(0, "Hello World\r\n")});
+    platform.earlyprintf("stats: {}\r\n", .{file.node.stat});
+    var buf: [64]u8 = undefined;
+    platform.earlyprintf("readback: {}\r\n", .{file.node.read(0, buf[0..])});
+
     //task.tryit(allocator) catch unreachable;
     // We shouldn't reach this
-    @panic("Kernel attempted to exit!");
+    @panic("kernel attempted to exit!");
 }
 
 fn neveragain() void {
