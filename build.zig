@@ -61,7 +61,7 @@ pub fn build(b: *Builder) void {
         // another hack
         //initrd_step.dependOn(&b.addSystemCommand(&[_][]const u8{"zip", "-x", "*.keepdir*", "-x", "**/*.keepdir*", "-r", tempOutputDir ++ "/initrd.zip", "."}).step);
         // invoke 'sh' to use chdir
-        initrd_step.dependOn(&b.addSystemCommand(&[_][]const u8{"sh", "-c", "cd '" ++ rootfsOutputDir ++ "' && zip -x '*.keepdir*' -x '**/*.keepdir*' -9r '" ++ tempOutputDir ++ "/initrd.zip' ."}).step);
+        initrd_step.dependOn(&b.addSystemCommand(&[_][]const u8{"sh", "-c", "cd '" ++ rootfsOutputDir ++ "' && zip -x '*.keepdir*' -x '**/*.keepdir*' -9r '../../" ++ tempOutputDir ++ "/initrd.zip' ."}).step);
     }
 
     const kernel_step = b.step("kernel", "Build Kernel"); {

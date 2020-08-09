@@ -62,11 +62,6 @@ pub fn main() void {
     var rootfs = zipfs.Fs.mount(allocator, &dev_initrd, null) catch unreachable;
     platform.earlyprintk("Mounted initial ramdisk.\r\n");
 
-    var files: [8]vfs.File = undefined;
-    var nf = rootfs.readDir(0, files[0..]) catch unreachable;
-    for (files[0..nf]) |fil| {
-        platform.earlyprintf("files->{} = {};\r\n", .{ fil.name(), 42 });
-    }
     // Should be unreachable;
     @panic("kernel attempted to exit!");
 }

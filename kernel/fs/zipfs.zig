@@ -176,8 +176,10 @@ const NodeImpl = struct {
             var mz_ok = c.mz_zip_reader_file_stat(&fs_impl.archive, @truncate(c.mz_uint, total_index), &file_info);
             if (mz_ok == 0) return vfs.Error.ReadFailed;
 
-            var path_slice = std.mem.spanZ(@ptrCast([*c]u8, &file_info.m_filename));
+            var path_slice: []u8 = std.mem.spanZ(@ptrCast([*c]u8, &file_info.m_filename));
             if (my_path.len > 0 and !std.mem.startsWith(u8, path_slice, my_path)) { total_index += 1; continue; }
+            if (std.mem.endsWith(u8, path_slice, "/")) { path_slice = path_slice[0..path_slice.len - 1]; }
+            if (std.mem.indexOf(u8, path_slice, "/") != null) { total_index += 1; continue; }
 
             var file: File = undefined;
             std.mem.copy(u8, file.name_buf[0..], path_slice[my_path.len..]);
@@ -195,7 +197,7 @@ const NodeImpl = struct {
         if (!self.stat.flags.mount_point) return;
 
         _ = c.mz_zip_reader_end(&myFsImpl(self).archive);
-        self.file_system.?.arena_allocator.deinit();
+        self.file_system.?.deinit();
     }
 };
 

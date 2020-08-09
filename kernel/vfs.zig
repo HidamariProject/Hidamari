@@ -194,6 +194,7 @@ pub const File = struct {
 pub const FileSystem = struct {
     pub const Ops = struct {
         mount: fn (self: *FileSystem, device: ?*Node, args: ?[]const u8) anyerror!*Node,
+        unmount: ?fn (self: *FileSystem) void = null,
     };
 
     name: []const u8,
@@ -218,6 +219,13 @@ pub const FileSystem = struct {
         errdefer fs.arena_allocator.deinit();
 
         return try fs.ops.mount(fs, device, args);
+    }
+
+    /// You should never call this yourself. unlink() the root node instead.
+    pub fn deinit(self: *FileSystem) void {
+        if (self.ops.unmount) |unmount_fn| { unmount_fn(self); }
+        self.arena_allocator.deinit();
+        self.raw_allocator.destroy(self);
     }
 };
 

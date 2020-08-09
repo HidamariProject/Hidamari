@@ -230,12 +230,21 @@ const NodeImpl = struct {
 
     pub fn unlink_me(self: *Node) !void {
         var node_impl = myImpl(self);
+
         if (node_impl.children) |children| {
             if (children.items.len != 0) return vfs.Error.NotEmpty;
         }
 
         node_impl.n_links.unref();
-        if (NodeImpl.trueRefCount(self) == 0) NodeImpl.deinit(self);
+
+        var fs = self.file_system.?;
+
+        if (NodeImpl.trueRefCount(self) == 0) {
+NodeImpl.deinit(self);
+if (self.stat.flags.mount_point) {
+fs.deinit();
+}
+}
     }
 };
 
