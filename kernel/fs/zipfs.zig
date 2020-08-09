@@ -71,9 +71,10 @@ const NodeImpl = struct {
         node_impl.* = .{};
 
         if (preinit_stat) |preinit_stat_inner| {
-          node_impl.miniz_stat = preinit_stat_inner; } else {
-        var mz_ok = c.mz_zip_reader_file_stat(&fs_impl.archive, @truncate(c.mz_uint, index), &node_impl.miniz_stat);
-        if (mz_ok == 0) return vfs.Error.ReadFailed;
+            node_impl.miniz_stat = preinit_stat_inner;
+        } else {
+            var mz_ok = c.mz_zip_reader_file_stat(&fs_impl.archive, @truncate(c.mz_uint, index), &node_impl.miniz_stat);
+            if (mz_ok == 0) return vfs.Error.ReadFailed;
         }
         var initial_stat = NodeImpl.minizToVfsStat(node_impl.miniz_stat);
 
@@ -165,8 +166,8 @@ const NodeImpl = struct {
         if (!self.stat.flags.mount_point) {
             var my_path_len = c.mz_zip_reader_get_filename(&fs_impl.archive, node_impl.miniz_stat.m_file_index, &my_path_raw, 1024);
             if (my_path_len == 0) return vfs.Error.ReadFailed;
-            my_path_raw[my_path_len] = '/';            
-            my_path = my_path_raw[0..my_path_len + 1];
+            my_path_raw[my_path_len] = '/';
+            my_path = my_path_raw[0 .. my_path_len + 1];
         }
 
         var true_index: usize = 0;
@@ -177,9 +178,17 @@ const NodeImpl = struct {
             if (mz_ok == 0) return vfs.Error.ReadFailed;
 
             var path_slice: []u8 = std.mem.spanZ(@ptrCast([*c]u8, &file_info.m_filename));
-            if (my_path.len > 0 and !std.mem.startsWith(u8, path_slice, my_path)) { total_index += 1; continue; }
-            if (std.mem.endsWith(u8, path_slice, "/")) { path_slice = path_slice[0..path_slice.len - 1]; }
-            if (std.mem.indexOf(u8, path_slice, "/") != null) { total_index += 1; continue; }
+            if (my_path.len > 0 and !std.mem.startsWith(u8, path_slice, my_path)) {
+                total_index += 1;
+                continue;
+            }
+            if (std.mem.endsWith(u8, path_slice, "/")) {
+                path_slice = path_slice[0 .. path_slice.len - 1];
+            }
+            if (std.mem.indexOf(u8, path_slice, "/") != null) {
+                total_index += 1;
+                continue;
+            }
 
             var file: File = undefined;
             std.mem.copy(u8, file.name_buf[0..], path_slice[my_path.len..]);

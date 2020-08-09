@@ -223,7 +223,9 @@ pub const FileSystem = struct {
 
     /// You should never call this yourself. unlink() the root node instead.
     pub fn deinit(self: *FileSystem) void {
-        if (self.ops.unmount) |unmount_fn| { unmount_fn(self); }
+        if (self.ops.unmount) |unmount_fn| {
+            unmount_fn(self);
+        }
         self.arena_allocator.deinit();
         self.raw_allocator.destroy(self);
     }

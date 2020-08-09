@@ -240,11 +240,11 @@ const NodeImpl = struct {
         var fs = self.file_system.?;
 
         if (NodeImpl.trueRefCount(self) == 0) {
-NodeImpl.deinit(self);
-if (self.stat.flags.mount_point) {
-fs.deinit();
-}
-}
+            NodeImpl.deinit(self);
+            if (self.stat.flags.mount_point) {
+                fs.deinit();
+            }
+        }
     }
 };
 
