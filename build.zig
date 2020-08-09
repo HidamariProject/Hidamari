@@ -26,6 +26,44 @@ pub fn build(b: *Builder) void {
 
     const mode = b.standardReleaseOptions();
 
+    const app_names = [_][]const u8{
+        "init",
+    };
+
+    const apps_step = b.step("apps", "Build Userspace Apps"); {
+        inline for (app_names) |app_name| {
+            const app = b.addExecutable(app_name, "apps/" ++ app_name ++ "/main.zig");
+            app.setTarget(wasiTarget);
+            app.setBuildMode(mode);
+            app.setOutputDir(tempOutputDir);
+            apps_step.dependOn(&app.step);
+        }
+    }
+
+    const rootfs_step = b.step("rootfs", "Build Root Filesystem"); {
+        // hack to always generate fresh rootfs
+        rootfs_step.dependOn(&b.addSystemCommand(&[_][]const u8{"rm", "-rf", rootfsOutputDir}).step);
+
+        rootfs_step.dependOn(&b.addSystemCommand(&[_][]const u8{"rsync", "-a", "rootfs_skel/", rootfsOutputDir}).step);
+
+        rootfs_step.dependOn(apps_step);
+        inline for (app_names) |app_name| {
+            rootfs_step.dependOn(&b.addSystemCommand(&[_][]const u8{"cp", tempOutputDir ++ "/" ++ app_name ++ ".wasm", rootfsOutputDir ++ "/bin/" ++ app_name}).step);
+        }
+    }
+
+    const initrd_step = b.step("initrd", "Build Initial Ramdisk"); {
+        initrd_step.dependOn(rootfs_step);
+
+        // hack to always generate fresh initrd
+        initrd_step.dependOn(&b.addSystemCommand(&[_][]const u8{"rm", "-f", tempOutputDir ++ "/initrd.zip"}).step);
+
+        // another hack
+        //initrd_step.dependOn(&b.addSystemCommand(&[_][]const u8{"zip", "-x", "*.keepdir*", "-x", "**/*.keepdir*", "-r", tempOutputDir ++ "/initrd.zip", "."}).step);
+        // invoke 'sh' to use chdir
+        initrd_step.dependOn(&b.addSystemCommand(&[_][]const u8{"sh", "-c", "cd '" ++ rootfsOutputDir ++ "' && zip -x '*.keepdir*' -x '**/*.keepdir*' -9r '" ++ tempOutputDir ++ "/initrd.zip' ."}).step);
+    }
+
     const kernel_step = b.step("kernel", "Build Kernel"); {
         const wasm3 = b.addStaticLibrary("wasm3", null);
         wasm3.addIncludeDir("kernel");
@@ -48,7 +86,7 @@ pub fn build(b: *Builder) void {
         miniz.addIncludeDir("kernel/miniz");
         miniz.addCSourceFile("kernel/miniz/miniz.c", &[_][]const u8{kernelClangTarget});
         miniz.setTarget(CrossTarget{.cpu_arch = kernelTarget.cpu_arch, .cpu_model = .baseline});
-        miniz.setBuildMode(mode);
+        miniz.setBuildMode(std.builtin.Mode.ReleaseSmall); // Needed because of undefined behavior. TODO FIXME.
 
         const exe = b.addExecutable(kernelBinary, "kernel/main.zig");
         exe.addIncludeDir("kernel");
@@ -59,19 +97,9 @@ pub fn build(b: *Builder) void {
         exe.linkLibrary(wasm3);
         exe.linkLibrary(ckern);
         exe.linkLibrary(miniz);
-        exe.strip = true;
 
+        kernel_step.dependOn(initrd_step);
         kernel_step.dependOn(&exe.step);
-    }
-
-    const apps_step = b.step("apps", "Build Userspace Apps"); {
-        const app = b.addExecutable("init", "apps/init/main.zig");
-        app.setTarget(wasiTarget);
-        app.setBuildMode(mode);
-        app.setOutputDir(tempOutputDir);
-
-        apps_step.dependOn(&app.step);
-        apps_step.dependOn(&b.addSystemCommand(&[_][]const u8{"cp", app.getOutputPath(), rootfsOutputDir ++ "/bin/init"}).step);
     }
 
     //const run_cmd = exe.run();
@@ -79,6 +107,5 @@ pub fn build(b: *Builder) void {
 
     //const run_step = b.step("run", "Run the app");
     //run_step.dependOn(&run_cmd.step);
-    b.default_step.dependOn(apps_step);
     b.default_step.dependOn(kernel_step);
 }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const util = @import("util.zig");
 
 const Cookie = util.Cookie;
@@ -6,7 +7,7 @@ const RefCount = util.RefCount;
 
 pub const max_name_len = 256;
 
-pub const Error = error{ NotImplemented, NotDirectory, NotFile, NoSuchFile, FileExists, NotEmpty };
+pub const Error = error{ NotImplemented, NotDirectory, NotFile, NoSuchFile, FileExists, NotEmpty, ReadFailed, WriteFailed };
 
 /// Node represents a FileSystem VNode
 /// There should only be ONE VNode in memory per file at a time!
@@ -93,6 +94,7 @@ pub const Node = struct {
         readDir: ?fn (self: *Node, offset: u64, files: []File) anyerror!usize = null,
 
         unlink_me: ?fn (self: *Node) anyerror!void = null,
+        free_me: ?fn (self: *Node) void = null,
     };
 
     stat: Stat = .{},
@@ -101,6 +103,7 @@ pub const Node = struct {
 
     ops: Node.Ops,
     cookie: Cookie = null,
+    alt_cookie: ?[]const u8 = null,
 
     pub fn init(ops: Node.Ops, cookie: Cookie, stat: ?Stat, file_system: ?*FileSystem) Node {
         return .{ .ops = ops, .cookie = cookie, .stat = if (stat != null) stat.? else .{}, .file_system = file_system };
@@ -114,10 +117,13 @@ pub const Node = struct {
     }
 
     pub fn close(self: *Node) !void {
-        if (self.ops.close) |close_fn| {
-            try close_fn(self);
-        }
         self.opens.unref();
+        if (self.ops.close) |close_fn| {
+            close_fn(self) catch |err| {
+                self.opens.ref();
+                return err;
+            };
+        }
     }
 
     pub fn read(self: *Node, offset: u64, buffer: []u8) !usize {
@@ -204,12 +210,12 @@ pub const FileSystem = struct {
     /// Mount a disk (or nothing) using a FileSystem.
     /// `device` should already be opened before calling mount().
     pub fn mount(self: FileSystem, allocator: *std.mem.Allocator, device: ?*Node, args: ?[]const u8) anyerror!*Node {
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        errdefer arena.deinit();
+        var fs = try allocator.create(FileSystem);
+        errdefer allocator.destroy(fs);
 
-        var fs = try arena.allocator.create(FileSystem);
-        fs.* = .{ .name = self.name, .ops = self.ops, .raw_allocator = allocator, .arena_allocator = arena, .allocator = &arena.allocator };
-        errdefer arena.allocator.destroy(fs);
+        fs.* = .{ .name = self.name, .ops = self.ops, .raw_allocator = allocator, .arena_allocator = std.heap.ArenaAllocator.init(allocator), .allocator = undefined };
+        fs.allocator = &fs.arena_allocator.allocator;
+        errdefer fs.arena_allocator.deinit();
 
         return try fs.ops.mount(fs, device, args);
     }
@@ -257,13 +263,15 @@ pub const ReadOnlyNode = struct {
     };
 
     pub fn init(buffer: []const u8) Node {
-        return Node.init(ReadOnlyNode, buffer, .{ .size = buffer.len, .blocks = buffer.len }, null);
+        var new_node = Node.init(ReadOnlyNode.ops, null, Node.Stat{ .size = buffer.len, .blocks = buffer.len + @sizeOf(Node) }, null);
+        new_node.alt_cookie = buffer;
+        return new_node;
     }
 
     pub fn read(self: *Node, offset: u64, buffer: []u8) !usize {
-        var my_data = self.cookie.?.as([]const u8);
+        var my_data = self.alt_cookie.?;
         var trueOff = @truncate(usize, offset);
-        var trueEnd = if (trueOff + buffer.len > my_data.len) my_data.len else trueOff + buffer.len;
+        var trueEnd = if (trueOff + buffer.len > self.stat.size) self.stat.size else trueOff + buffer.len;
         std.mem.copy(u8, buffer, my_data[trueOff..trueEnd]);
         return trueEnd - trueOff;
     }

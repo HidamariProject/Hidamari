@@ -62,14 +62,10 @@ pub const Scheduler = struct {
         var newIndex = try self.findFreeSlot();
 
         var frameData = try self.allocator.allocAdvanced(u8, Task.frame_data_align, 4096, .at_least);
-        errdefer {
-            self.allocator.free(frameData);
-        }
+        errdefer self.allocator.free(frameData);
 
         var task = try self.allocator.create(Task);
-        errdefer {
-            self.allocator.destroy(task);
-        }
+        errdefer self.allocator.destroy(task);
 
         task.* = Task.init(newIndex, entryPoint, frameData, cookie);
 

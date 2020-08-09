@@ -9,6 +9,7 @@ const task = @import("task.zig");
 const utsname = @import("utsname.zig");
 
 const tmpfs = @import("fs/tmpfs.zig");
+const zipfs = @import("fs/zipfs.zig");
 
 extern fn allSanityChecks() callconv(.C) void;
 pub inline fn nop() void {}
@@ -32,37 +33,51 @@ pub fn panic(message: []const u8, stack_trace: ?*builtin.StackTrace) noreturn {
     platform.halt();
 }
 
-const binInit = @embedFile("init.wasm");
+// Generated at build time
+const initrd_zip = @embedFile("../output/temp/initrd.zip");
 
 pub fn main() void {
     // Initialize platform
     platform.init();
+
     // Run sanity tests
     platform.earlyprintk("Running hardware integrity tests. If the system crashes during these, that's your problem, not mine.\r\n");
     allSanityChecks();
     platform.earlyprintk("Tests passed.\r\n");
+
     // Show kernel information
     var info = utsname.uname();
     platform.earlyprintf("{} {} {} {}\r\n", .{ info.sys_name, info.release, info.version, info.machine });
+    platform.earlyprintk("(C) 2020 Ronsor Labs.\r\n\r\n");
+
     // Create allocator. TODO: good one
     const static_size = 32 * 1024 * 1024;
     var big_buffer = platform.internal_malloc(static_size).?;
     var allocator = &std.heap.FixedBufferAllocator.init(big_buffer[0..static_size]).allocator;
 
-    var null_node = vfs.NullNode.init();
-    platform.earlyprintf("ret: {}\r\n", .{null_node.write(0, "Hello World\r\n")});
+    var dev_initrd = vfs.ReadOnlyNode.init(initrd_zip);
+    platform.earlyprintf("Size of initial ramdisk in bytes: {}.\r\n", .{dev_initrd.stat.size});
 
+    // TODO: support other formats
+    var rootfs = zipfs.Fs.mount(allocator, &dev_initrd, null) catch unreachable;
+    platform.earlyprintk("Mounted initial ramdisk.\r\n");
+
+    var files: [8]vfs.File = undefined;
+    var nf = rootfs.readDir(0, files[0..]) catch unreachable;
+    for (files[0..nf]) |fil| {
+        platform.earlyprintf("files->{} = {};\r\n", .{ fil.name(), 42 });
+    }
+    // Should be unreachable;
+    @panic("kernel attempted to exit!");
+}
+
+fn nopehaha() void {
     var fs = tmpfs.Fs.mount(allocator, null, null) catch unreachable;
     var file = fs.create("file.txt", .File, vfs.Node.Mode.all) catch unreachable;
     platform.earlyprintf("another ret: {}\r\n", .{file.node.write(0, "Hello World\r\n")});
     platform.earlyprintf("stats: {}\r\n", .{file.node.stat});
     var buf: [64]u8 = undefined;
     platform.earlyprintf("readback: {}\r\n", .{file.node.read(0, buf[0..])});
-    var files: [8]vfs.File = undefined;
-    var nf = fs.readDir(0, files[0..]) catch unreachable;
-    for (files[0..nf]) |fil| {
-        platform.earlyprintf("files->{} = {};\r\n", .{ fil.name(), fil.node.stat });
-    }
     //task.tryit(allocator) catch unreachable;
     // We shouldn't reach this
     @panic("kernel attempted to exit!");

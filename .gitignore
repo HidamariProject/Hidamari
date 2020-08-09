@@ -5,4 +5,5 @@ zig-cache/
 *.pdb
 *.efi
 NvVars
-output/rootfs/bin/*
+output/rootfs/*
+output/temp/*

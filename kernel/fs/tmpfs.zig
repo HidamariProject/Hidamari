@@ -7,7 +7,6 @@ const util = @import("../util.zig");
 const RefCount = util.RefCount;
 const Node = vfs.Node;
 const File = vfs.File;
-const FileSystem = vfs.FileSystem;
 
 const FileList = std.ArrayList(?File);
 
@@ -143,7 +142,10 @@ const NodeImpl = struct {
         if (node_impl.children) |children| {
             for (children.items) |child| {
                 if (child == null) continue;
-                if (std.mem.eql(u8, child.?.name(), name)) return child.?;
+                if (std.mem.eql(u8, child.?.name(), name)) {
+                    try child.?.open();
+                    return child.?;
+                }
             }
             return vfs.Error.NoSuchFile;
         }
@@ -151,6 +153,7 @@ const NodeImpl = struct {
     }
 
     pub fn create(self: *Node, name: []const u8, typ: Node.Type, mode: Node.Mode) !File {
+        var fs_impl = myFsImpl(self);
         var node_impl = myImpl(self);
         if (node_impl.children) |children| {
             for (children.items) |child| {
@@ -169,6 +172,8 @@ const NodeImpl = struct {
             new_file.node = new_node;
             try node_impl.children.?.append(new_file);
             myImpl(new_node).n_links.ref();
+
+            try new_node.open();
             return new_file;
         }
         return vfs.Error.NotDirectory;
@@ -235,7 +240,7 @@ const NodeImpl = struct {
 };
 
 const FsImpl = struct {
-    const ops: FileSystem.Ops = .{
+    const ops: vfs.FileSystem.Ops = .{
         .mount = FsImpl.mount,
     };
 
@@ -244,7 +249,7 @@ const FsImpl = struct {
     maybe_fba_data: []u8,
     inode_count: u64,
 
-    pub fn mount(self: *FileSystem, unused: ?*Node, args: ?[]const u8) !*Node {
+    pub fn mount(self: *vfs.FileSystem, unused: ?*Node, args: ?[]const u8) !*Node {
         var fs_impl = try self.allocator.create(FsImpl);
         errdefer self.allocator.destroy(fs_impl);
 
