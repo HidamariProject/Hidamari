@@ -25,7 +25,6 @@ fn m3ResultToError(m3res: c.M3Result, comptime T: type) !T {
             return undefined;
         };
     }
-    platform.earlyprintf("M3 Error: {}\r\n", .{std.mem.spanZ(m3res)});
     const err = switch (m3res.?) {
         //    c.m3Err_argumentCountMismatch => Error.InvalidNumArgs,
         else => Error.Unknown,
@@ -148,10 +147,10 @@ pub const ZigFunctionCtx = struct {
 };
 
 pub const Module = struct {
-    _mod: c.IM3Module,
+    module: c.IM3Module,
 
     pub fn init(modPtr: c.IM3Module) Module {
-        return Module{ ._mod = modPtr };
+        return Module{ .module = modPtr };
     }
 
     pub inline fn name(self: Module) []const u8 {
@@ -159,20 +158,20 @@ pub const Module = struct {
     }
 
     pub inline fn raw(self: Module) c.IM3Module {
-        return self._mod;
+        return self.module;
     }
 
     pub fn linkRawFunction(self: Module, modName: [*c]const u8, fName: [*c]const u8, sig: [*c]const u8, rawcall: c.M3RawCall) !void {
-        return m3ResultToError(c.m3_LinkRawFunction(self._mod, modName, fName, sig, rawcall), void);
+        return m3ResultToError(c.m3_LinkRawFunction(self.module, modName, fName, sig, rawcall), void);
     }
 
     pub fn linkRawFunctionEx(self: Module, modName: [*c]const u8, fName: [*c]const u8, sig: [*c]const u8, rawcall: c.M3RawCallEx, cookie: *c_void) !void {
-        return m3ResultToError(c.m3_LinkRawFunctionEx(self._mod, modName, fName, sig, rawcall, cookie), void);
+        return m3ResultToError(c.m3_LinkRawFunctionEx(self.module, modName, fName, sig, rawcall, cookie), void);
     }
 
     fn linkZigFunctionHelper(runtime: c.IM3Runtime, sp: [*c]u64, mem: ?*c_void, cookie: ?*c_void) callconv(.C) ?*c_void {
         var f: ZigFunction = @intToPtr(ZigFunction, @ptrToInt(cookie));
-        var bogusRt = Runtime{ ._rt = runtime, ._env = undefined };
+        var bogusRt = Runtime{ .runtime = runtime, .environ = undefined };
         f(ZigFunctionCtx{ .runtime = bogusRt, .sp = RuntimeStack.init(sp), .memory = @ptrCast([*]u8, mem), .cookie = cookie }) catch |err| return @intToPtr(*c_void, @ptrToInt(c.m3Err_trapAbort)); // TODO: memory safety
         return null;
     }
@@ -183,7 +182,7 @@ pub const Module = struct {
 
     fn linkZigFunctionHelperEx(runtime: c.IM3Runtime, sp: [*c]u64, mem: ?*c_void, cookie: ?*c_void) callconv(.C) ?*c_void {
         var f: *ZigFunctionEx = @intToPtr(*ZigFunctionEx, @ptrToInt(cookie));
-        var bogusRt = Runtime{ ._rt = runtime, ._env = undefined };
+        var bogusRt = Runtime{ .runtime = runtime, .environ = undefined };
         f.call(ZigFunctionCtx{ .runtime = bogusRt, .sp = RuntimeStack.init(sp), .memory = @ptrCast([*]u8, mem), .cookie = cookie }) catch |err| return @intToPtr(*c_void, @ptrToInt(c.m3Err_trapAbort)); // TODO: memory safety
         return null;
     }
@@ -193,43 +192,43 @@ pub const Module = struct {
     }
 
     pub fn destroy(self: Module) void {
-        c.m3_FreeModule(self._mod);
+        c.m3_FreeModule(self.module);
     }
 
     pub fn next(self: Module) !Module {
-        if (self._mod.next == null) return Errors.NoMoreModules;
-        return Module.init(self._mod.next);
+        if (self.module.next == null) return Errors.NoMoreModules;
+        return Module.init(self.module.next);
     }
 };
 
 pub const Function = struct {
-    _func: ?*c.M3Function,
-    _runtime: Runtime,
+    func: ?*c.M3Function,
+    runtime: Runtime,
 
     pub fn init(func: c.IM3Function, runtime: Runtime) Function {
-        return Function{ ._func = func, ._runtime = runtime };
+        return Function{ .func = func, .runtime = runtime };
     }
 
     pub fn name(self: Function) []const u8 {
-        return std.mem.spanZ(self._func.?.name);
+        return std.mem.spanZ(self.func.?.name);
     }
 
     pub fn numArgs(self: Function) u8 {
-        return @truncate(u8, self._func.?.funcType.*.numArgs);
+        return @truncate(u8, self.func.?.funcType.*.numArgs);
     }
 
     pub fn callVoid(self: Function, comptime T: type) !T {
-        var res = c.m3_Call(self._func);
+        var res = c.m3_Call(self.func);
         if (res != null) return m3ResultToError(res, T);
         comptime if (T == void) return;
-        return self._runtime.stack().get(T, 0);
+        return self.runtime.stack().get(T, 0);
     }
 
     pub fn callWithArgs(self: Function, comptime T: type, args: [*c]const [*c]const u8, argc: usize) !T {
-        var res = c.m3_CallWithArgs(self._func, @intCast(u32, argc), args);
+        var res = c.m3_CallWithArgs(self.func, @intCast(u32, argc), args);
         if (res != null) return m3ResultToError(res, T);
         comptime if (T == void) return;
-        return self._runtime.stack().get(T, 0);
+        return self.runtime.stack().get(T, 0);
     }
 
     pub fn call(self: Function, comptime T: type, args: anytype) !T {
@@ -260,50 +259,47 @@ pub const Function = struct {
 };
 
 pub const Runtime = struct {
-    _env: c.IM3Environment,
-    _rt: ?*c.M3Runtime,
+    environ: c.IM3Environment,
+    runtime: ?*c.M3Runtime,
 
     pub fn init(stackBytes: usize) !Runtime {
         var ret: Runtime = undefined;
-        ret._env = c.m3_NewEnvironment();
-        if (ret._env == null) return Error.CantCreateEnv;
-        errdefer {
-            c.m3_FreeEnvironment(ret._env);
-        }
-        ret._rt = c.m3_NewRuntime(ret._env, @intCast(u32, stackBytes), null);
-        if (ret._rt == null) return Error.CantCreateRuntime;
-        errdefer {
-            c.m3_FreeRuntime(ret._env);
-        }
+        ret.environ = c.m3_NewEnvironment();
+        if (ret.environ == null) return Error.CantCreateEnv;
+        errdefer c.m3_FreeEnvironment(ret.environ);
+        ret.runtime = c.m3_NewRuntime(ret.environ, @intCast(u32, stackBytes), null);
+        if (ret.runtime == null) return Error.CantCreateRuntime;
+        errdefer c.m3_FreeRuntime(ret.environ);
+
         return ret;
     }
 
     pub fn parseAndLoadModule(self: Runtime, data: []const u8) !Module {
         var modPtr: c.IM3Module = undefined;
-        var res = c.m3_ParseModule(self._env, &modPtr, data.ptr, @intCast(u32, data.len));
+        var res = c.m3_ParseModule(self.environ, &modPtr, data.ptr, @intCast(u32, data.len));
         if (res != null) return m3ResultToError(res, Module);
         errdefer {
             c.m3_FreeModule(modPtr);
         }
-        res = c.m3_LoadModule(self._rt, modPtr);
+        res = c.m3_LoadModule(self.runtime, modPtr);
         if (res != null) return m3ResultToError(res, Module);
         return Module.init(modPtr);
     }
 
     pub fn findFunction(self: Runtime, name: [*c]const u8) !Function {
         var rawf: c.IM3Function = undefined;
-        var res = c.m3_FindFunction(&rawf, self._rt, name);
+        var res = c.m3_FindFunction(&rawf, self.runtime, name);
         if (res != null) return m3ResultToError(res, Function);
         return Function.init(rawf, self);
     }
 
     pub inline fn stack(self: Runtime) RuntimeStack {
-        var rawstack = @ptrCast([*]u64, @alignCast(@alignOf([*]u64), self._rt.?.stack));
+        var rawstack = @ptrCast([*]u64, @alignCast(@alignOf([*]u64), self.runtime.?.stack));
         return RuntimeStack.init(rawstack);
     }
 
     pub fn deinit(self: Runtime) void {
-        c.m3_FreeRuntime(self._rt);
-        c.m3_FreeEnvironment(self._env);
+        c.m3_FreeRuntime(self.runtime);
+        c.m3_FreeEnvironment(self.environ);
     }
 };

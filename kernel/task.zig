@@ -1,3 +1,7 @@
+// Generic Scheduler for Shinkou.
+// Looking for how we run processes? Check `process.zig`.
+// (C) 2020 Ronsor Labs.
+
 const std = @import("std");
 const platform = @import("platform.zig");
 const util = @import("util.zig");
@@ -7,27 +11,30 @@ const Cookie = util.Cookie;
 pub const Error = error{NoSuchTask};
 
 pub const Task = struct {
+    pub const Id = u24;
     pub const EntryPoint = fn (task: *Task) callconv(.Async) void;
     pub const frame_data_align = @alignOf(@Frame(sampleTask));
 
-    tid: usize,
+    parent_tid: ?Task.Id,
+    tid: Task.Id,
+    cookie_meta: usize,
     cookie: Cookie,
 
-    frameData: []align(Task.frame_data_align) u8,
-    framePtr: anyframe = undefined,
+    frame_data: []align(Task.frame_data_align) u8,
+    frame_ptr: anyframe = undefined,
 
     started: bool = false,
     killed: bool = false,
 
-    entryPoint: Task.EntryPoint,
+    entry_point: Task.EntryPoint,
     deinit: ?fn (task: *Task) void = null,
 
-    pub fn init(tid: usize, entryPoint: Task.EntryPoint, frameData: []align(Task.frame_data_align) u8, cookie: Cookie) Task {
-        return Task{ .tid = tid, .entryPoint = entryPoint, .frameData = frameData, .cookie = cookie };
+    pub fn init(tid: Task.Id, parent_tid: ?Task.Id, entry_point: Task.EntryPoint, frame_data: []align(Task.frame_data_align) u8, cookie: Cookie) Task {
+        return Task{ .tid = tid, .parent_tid = parent_tid, .entry_point = entry_point, .frame_data = frame_data, .cookie = cookie };
     }
 
     pub fn yield(task: *Task) void {
-        task.framePtr = @frame();
+        task.frame_ptr = @frame();
         suspend;
     }
 
@@ -37,64 +44,71 @@ pub const Task = struct {
 };
 
 pub const Scheduler = struct {
+    const TaskList = std.AutoHashMap(Task.Id, *Task);
+
     allocator: *std.mem.Allocator,
-    tasks: []?*Task,
+    tasks: Scheduler.TaskList,
+    next_spawn_tid: Task.Id,
+
+    current_tid: ?Task.Id = undefined,
 
     pub fn init(allocator: *std.mem.Allocator) !Scheduler {
-        return Scheduler{ .allocator = allocator, .tasks = try allocator.alloc(?*Task, 0) };
+        return Scheduler{ .allocator = allocator, .tasks = Scheduler.TaskList.init(allocator), .next_spawn_tid = 0 };
     }
 
-    fn findFreeSlot(self: *Scheduler) !usize {
-        for (self.tasks) |task, i| {
-            if (task == null) return i;
+    pub fn yieldCurrent(self: *Scheduler) void {
+        if (self.current_tid) |tid| {
+            self.tasks.get(tid).?.yield();
         }
-        self.tasks = try self.allocator.realloc(self.tasks, self.tasks.len + 1);
-        return self.tasks.len - 1;
     }
 
-    pub fn getTask(self: Scheduler, tid: usize) !*Task {
-        if (tid >= self.tasks.len) return Error.NoSuchTask;
-        if (self.tasks[tid] == null) return Error.NoSuchTask;
-        return self.tasks[tid];
-    }
+    pub fn spawn(self: *Scheduler, parent_tid: ?Task.Id, entry_point: Task.EntryPoint, cookie: Cookie, stack_size: usize) !Task.Id {
+        var new_index: Task.Id = undefined;
+        while (true) {
+            new_index = @atomicRmw(Task.Id, &self.next_spawn_tid, .Add, 1, .SeqCst);
+            if (self.tasks.get(new_index) == null) break;
+        }
 
-    pub fn spawn(self: *Scheduler, entryPoint: Task.EntryPoint, cookie: Cookie) !*Task {
-        var newIndex = try self.findFreeSlot();
-
-        var frameData = try self.allocator.allocAdvanced(u8, Task.frame_data_align, 4096, .at_least);
-        errdefer self.allocator.free(frameData);
+        var frame_data = try self.allocator.allocAdvanced(u8, Task.frame_data_align, stack_size, .at_least);
+        errdefer self.allocator.free(frame_data);
 
         var task = try self.allocator.create(Task);
         errdefer self.allocator.destroy(task);
 
-        task.* = Task.init(newIndex, entryPoint, frameData, cookie);
+        task.* = Task.init(new_index, parent_tid, entry_point, frame_data, cookie);
 
-        self.tasks[newIndex] = task;
-        return task;
+        _ = try self.tasks.put(new_index, task);
+        return new_index;
     }
 
-    pub fn loop(self: *Scheduler) void {
-        while (true) {
-            for (self.tasks) |maybeTask, i| {
-                if (maybeTask) |task| {
-                    if (task.started)
-                        resume task.framePtr
-                    else
-                        _ = @asyncCall(task.frameData, {}, task.entryPoint, .{task});
-                    task.started = true;
-                    if (task.killed) {
-                        self.tasks[i] = null;
-                        if (task.deinit) |deinit_fn| {
-                            deinit_fn(task);
-                        }
-                        if (i == self.tasks.len - 1) {
-                            // TODO realloc
-                        }
-                        self.allocator.destroy(task);
-                    }
+    pub fn loopOnce(self: *Scheduler) void {
+        for (self.tasks.items()) |entry| {
+            var task = entry.value;
+            self.current_tid = entry.key;
+
+            if (task.killed) continue;
+
+            if (task.started)
+                resume task.frame_ptr
+            else
+                _ = @asyncCall(task.frame_data, {}, task.entry_point, .{task});
+            task.started = true;
+
+            if (task.parent_tid != null and self.tasks.get(task.parent_tid.?) == null)
+                task.parent_tid = null;
+
+            if (task.killed and task.parent_tid == null) {
+                _ = self.tasks.remove(entry.key);
+
+                if (task.deinit) |deinit_fn| {
+                    deinit_fn(task);
                 }
+
+                self.allocator.free(task.frame_data);
+                self.allocator.destroy(task);
             }
         }
+        self.current_tid = null;
     }
 };
 
@@ -104,18 +118,19 @@ fn subFn(t: *Task) void {
     platform.earlyprintk("and we're back\r\n");
 }
 
-fn sampleTask(t: *Task) void {
+pub fn sampleTask(t: *Task) void {
     var n: u64 = 0;
+    t.yield();
     while (true) {
         platform.earlyprintf("tid={} n={}\r\n", .{ t.tid, n });
         n += 1;
-        subFn(t);
+        //subFn(t);
     }
 }
 
 pub fn tryit(allocator: *std.mem.Allocator) !void {
     var sched = try Scheduler.init(allocator);
-    _ = try sched.spawn(sampleTask, null);
-    _ = try sched.spawn(sampleTask, null);
-    sched.loop();
+    _ = try sched.spawn(null, sampleTask, null, 4096);
+    _ = try sched.spawn(null, sampleTask, null, 4096);
+    while (true) sched.loop_once();
 }

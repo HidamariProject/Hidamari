@@ -3,6 +3,8 @@ const builtin = @import("builtin");
 const uefi = std.os.uefi;
 const time = std.time;
 
+const earlyprintf = @import("../platform.zig").earlyprintf;
+
 pub const klibc = @import("../klibc.zig");
 pub const debugMalloc = false;
 
@@ -10,11 +12,36 @@ var exitedBootServices = false;
 
 const Error = error{UefiError};
 
+var timer_event: uefi.Event = undefined;
+var timer_call: ?fn () void = null;
+
+inline fn getFromStack(rsp: isize, off: isize) u64 {
+    return @intToPtr([*]u64, @intCast(usize, rsp + off * @sizeOf(isize)))[0];
+}
+
+pub fn timer_call_thunk(event: uefi.Event, context: ?*const c_void) callconv(.C) void {
+    //    var rsp = asm volatile ("" : [ret] "={rsp}" (-> isize));
+    //    var myVar: u64 = 42;
+    //    earlyprintk("Event\r\n");
+    //    earlyprintf("{}\r\n", .{@import("../task.zig").sampleTask});
+    //    earlyprintf("rsp={x}\r\n", .{rsp});
+    //    var i: isize = 0;
+    //    while (i < 10) : (i += 1) {
+    //    earlyprintf("stack: {} - {x}\r\n", .{i, getFromStack(rsp, i)});
+    //    }
+    //    _ = myVar;
+    if (timer_call) |func| {
+        func();
+    }
+}
+
 pub fn init() void {
     klibc.notifyInitialization();
     const con_out = uefi.system_table.con_out.?;
     _ = uefi.system_table.boot_services.?.setWatchdogTimer(0, 0, 0, null);
     _ = con_out.reset(false);
+    _ = uefi.system_table.boot_services.?.createEvent(uefi.tables.BootServices.event_timer | uefi.tables.BootServices.event_notify_signal, uefi.tables.BootServices.tpl_notify, timer_call_thunk, null, &timer_event);
+    _ = uefi.system_table.boot_services.?.setTimer(timer_event, uefi.tables.TimerDelay.TimerPeriodic, 1000);
 }
 
 pub fn malloc(size: usize) ?[*]u8 {
@@ -53,6 +80,10 @@ pub fn earlyprintk(str: []const u8) void {
     for (str) |c| {
         _ = con_out.outputString(&[_:0]u16{ c, 0 });
     }
+}
+
+pub fn setTimer(cb: @TypeOf(timer_call)) void {
+    timer_call = cb;
 }
 
 pub fn getTimeNano() i64 {

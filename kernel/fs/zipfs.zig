@@ -134,7 +134,7 @@ const NodeImpl = struct {
             var mz_ok = c.mz_zip_reader_locate_file_v2(&fs_impl.archive, full_path.ptr, null, 0, &index);
             if (mz_ok == 0) return vfs.Error.NoSuchFile;
         } else {
-            var full_path_raw: [512]u8 = undefined;
+            var full_path_raw: [1024]u8 = undefined;
             var full_path: []u8 = full_path_raw[0..path.len];
             std.mem.copy(u8, full_path, path);
             full_path_raw[full_path.len] = 0;
@@ -203,10 +203,7 @@ const NodeImpl = struct {
     }
 
     pub fn unlink_me(self: *Node) !void {
-        if (!self.stat.flags.mount_point) return;
-
-        _ = c.mz_zip_reader_end(&myFsImpl(self).archive);
-        self.file_system.?.deinit();
+        // There's nothing worth doing here.
     }
 };
 
@@ -215,6 +212,7 @@ const FsImpl = struct {
 
     const ops: vfs.FileSystem.Ops = .{
         .mount = FsImpl.mount,
+        .unmount = FsImpl.unmount,
     };
 
     zip_data: []u8 = undefined,
@@ -266,6 +264,11 @@ const FsImpl = struct {
         root_node.* = Node.init(NodeImpl.ops, util.asCookie(root_node_impl), root_node_stat, self);
 
         return root_node;
+    }
+
+    pub fn unmount(self: *vfs.FileSystem) void {
+        var fs_impl = self.cookie.?.as(FsImpl);
+        _ = c.mz_zip_reader_end(&fs_impl.archive);
     }
 };
 

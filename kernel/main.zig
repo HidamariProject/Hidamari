@@ -11,6 +11,10 @@ const utsname = @import("utsname.zig");
 const tmpfs = @import("fs/tmpfs.zig");
 const zipfs = @import("fs/zipfs.zig");
 
+var systemFlags = .{
+    .coop_multitask = true, // Run in cooperative multitasking mode
+};
+
 extern fn allSanityChecks() callconv(.C) void;
 pub inline fn nop() void {}
 
@@ -36,6 +40,12 @@ pub fn panic(message: []const u8, stack_trace: ?*builtin.StackTrace) noreturn {
 // Generated at build time
 const initrd_zip = @embedFile("../output/temp/initrd.zip");
 
+var sched: task.Scheduler = undefined;
+
+pub fn timer_tick() void {
+    if (!systemFlags.coop_multitask) sched.yieldCurrent();
+}
+
 pub fn main() void {
     // Initialize platform
     platform.init();
@@ -48,7 +58,7 @@ pub fn main() void {
     // Show kernel information
     var info = utsname.uname();
     platform.earlyprintf("{} {} {} {}\r\n", .{ info.sys_name, info.release, info.version, info.machine });
-    platform.earlyprintk("(C) 2020 Ronsor Labs.\r\n\r\n");
+    platform.earlyprintk("(C) 2020 Ronsor Labs. This software is protected by domestic and international copyright law.\r\n\r\n");
 
     // Create allocator. TODO: good one
     const static_size = 32 * 1024 * 1024;
@@ -62,6 +72,15 @@ pub fn main() void {
     var rootfs = zipfs.Fs.mount(allocator, &dev_initrd, null) catch unreachable;
     platform.earlyprintk("Mounted initial ramdisk.\r\n");
 
+    // Setup task scheduler
+    sched = task.Scheduler.init(allocator) catch unreachable;
+
+    platform.setTimer(timer_tick);
+
+    // TODO: spawn kernel thread
+    //_ = sched.spawn(null, task.sampleTask, null, 4096) catch unreachable;
+
+    while (true) sched.loopOnce();
     // Should be unreachable;
     @panic("kernel attempted to exit!");
 }

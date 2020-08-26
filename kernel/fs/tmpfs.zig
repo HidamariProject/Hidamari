@@ -84,7 +84,6 @@ const NodeImpl = struct {
     }
 
     // Returns the true reference count (number of opens + number of hard links). We can't deinit until this reaches 0, or bad things will happen.
-
     fn trueRefCount(self: *Node) usize {
         return self.opens.refs + myImpl(self).n_links.refs;
     }
@@ -190,7 +189,11 @@ const NodeImpl = struct {
             new_file.node = new_node;
             if (new_node.file_system == self.file_system) {
                 myImpl(new_node).n_links.ref();
+            } else if (new_node.stat.flags.mount_point) {
+                try new_node.open();
             }
+
+            try node_impl.children.?.append(new_file);
             return new_file;
         }
         return vfs.Error.NotDirectory;
@@ -241,9 +244,6 @@ const NodeImpl = struct {
 
         if (NodeImpl.trueRefCount(self) == 0) {
             NodeImpl.deinit(self);
-            if (self.stat.flags.mount_point) {
-                fs.deinit();
-            }
         }
     }
 };

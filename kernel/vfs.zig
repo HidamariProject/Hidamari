@@ -114,6 +114,7 @@ pub const Node = struct {
             try open_fn(self);
         }
         self.opens.ref();
+        if (self.file_system) |fs| { fs.opens.ref(); }
     }
 
     pub fn close(self: *Node) !void {
@@ -123,6 +124,10 @@ pub const Node = struct {
                 self.opens.ref();
                 return err;
             };
+        }
+        if (self.file_system) |fs| {
+            fs.opens.unref();
+            if (fs.opens.refs == 0) fs.deinit();
         }
     }
 
@@ -203,13 +208,14 @@ pub const FileSystem = struct {
     raw_allocator: *std.mem.Allocator = undefined,
     arena_allocator: std.heap.ArenaAllocator = undefined,
     allocator: *std.mem.Allocator = undefined,
+    opens: RefCount = .{},
 
     pub fn init(name: []const u8, ops: FileSystem.Ops) FileSystem {
         return .{ .name = name, .ops = ops };
     }
 
     /// Mount a disk (or nothing) using a FileSystem.
-    /// `device` should already be opened before calling mount().
+    /// `device` should already be opened before calling mount(). The FileSystem now owns the handle.
     pub fn mount(self: FileSystem, allocator: *std.mem.Allocator, device: ?*Node, args: ?[]const u8) anyerror!*Node {
         var fs = try allocator.create(FileSystem);
         errdefer allocator.destroy(fs);

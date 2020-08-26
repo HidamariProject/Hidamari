@@ -10,6 +10,8 @@ pub fn build(b: *Builder) void {
         .os_tag = Target.Os.Tag.wasi,
     };
 
+    // Soon we'll support other targets (riscv-uefi, et al.)
+
     const kernelTarget = CrossTarget{
         .cpu_arch = Target.Cpu.Arch.x86_64,
         .cpu_model = .baseline,
@@ -98,6 +100,7 @@ pub fn build(b: *Builder) void {
         exe.linkLibrary(ckern);
         exe.linkLibrary(miniz);
 
+        kernel_step.dependOn(&b.addSystemCommand(&[_][]const u8{"touch", "kernel/utsname_extra.h"}).step);
         kernel_step.dependOn(initrd_step);
         kernel_step.dependOn(&exe.step);
     }
