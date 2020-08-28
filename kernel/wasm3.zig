@@ -1,6 +1,9 @@
 const std = @import("std");
 const fmt = std.fmt;
+const util = @import("util.zig");
 const platform = @import("platform.zig");
+
+const Cookie = util.Cookie;
 
 const c = @cImport({
     @cInclude("wasm3/source/m3_env.h");
@@ -13,6 +16,8 @@ const Error = error{
     NoMoreModules,
     InvalidType,
     InvalidNumArgs,
+    Exit,
+    Abort,
 };
 
 const WasmPtr = struct { offset: u32 };
@@ -25,8 +30,8 @@ fn m3ResultToError(m3res: c.M3Result, comptime T: type) !T {
             return undefined;
         };
     }
-    const err = switch (m3res.?) {
-        //    c.m3Err_argumentCountMismatch => Error.InvalidNumArgs,
+    const err = switch (m3res) {
+        c.m3Err_argumentCountMismatch => Error.InvalidNumArgs,
         else => Error.Unknown,
     };
     return err;
@@ -80,9 +85,10 @@ pub const ZigFunctionEx = struct {
     name: [*c]const u8,
     sig: [*c]const u8,
     call: ZigFunction,
+    cookie: Cookie = null,
     _orig: fn () void,
 
-    pub fn init(name: [*c]const u8, f: anytype) ZigFunctionEx {
+    pub fn init(name: [*c]const u8, f: anytype, cookie_type: ?type) ZigFunctionEx {
         comptime var rawftype = @TypeOf(f);
         comptime var ftype = @typeInfo(rawftype);
         comptime var atype = @typeInfo(ftype.Fn.args[1].arg_type.?);
@@ -108,6 +114,41 @@ pub const ZigFunctionEx = struct {
             sig[i + 1] = 0;
         }
         return ret;
+    }
+
+    pub inline fn lenInitMany(comptime prefix: []const u8, comptime typ: type) comptime usize {
+        comptime {
+            var t = @typeInfo(typ);
+            var i = 0;
+            for (t.Struct.decls) |decl| {
+                if (std.mem.startsWith(u8, decl.name, prefix))
+                    i += switch (decl.data) {
+                        .Fn => 1,
+                        else => 0,
+                    };
+            }
+            return i;
+        }
+    }
+
+    pub inline fn initMany(comptime prefix: []const u8, s: anytype) [lenInitMany(@TypeOf(s))]ZigFunctionEx {
+        comptime {
+            var ret: [lenInitMany(@TypeOf(s))]ZigFunctionEx = undefined;
+            var typ = @typeInfo(@TypeOf(s));
+            var i = 0;
+            for (t.Struct.decls) |decl| {
+                if (std.mem.startsWith(u8, decl.name)) {
+                    switch (decl.data) {
+                        .Fn => {
+                            ret[i] = init(decl.name[prefix.len..], @field(s, decl.name));
+                            i += 1;
+                        },
+                        else => {},
+                    }
+                }
+            }
+            return ret;
+        }
     }
 };
 
@@ -183,7 +224,7 @@ pub const Module = struct {
     fn linkZigFunctionHelperEx(runtime: c.IM3Runtime, sp: [*c]u64, mem: ?*c_void, cookie: ?*c_void) callconv(.C) ?*c_void {
         var f: *ZigFunctionEx = @intToPtr(*ZigFunctionEx, @ptrToInt(cookie));
         var bogusRt = Runtime{ .runtime = runtime, .environ = undefined };
-        f.call(ZigFunctionCtx{ .runtime = bogusRt, .sp = RuntimeStack.init(sp), .memory = @ptrCast([*]u8, mem), .cookie = cookie }) catch |err| return @intToPtr(*c_void, @ptrToInt(c.m3Err_trapAbort)); // TODO: memory safety
+        f.call(ZigFunctionCtx{ .runtime = bogusRt, .sp = RuntimeStack.init(sp), .memory = @ptrCast([*]u8, mem), .cookie = f.cookie }) catch |err| return @intToPtr(*c_void, @ptrToInt(c.m3Err_trapAbort)); // TODO: memory safety
         return null;
     }
 

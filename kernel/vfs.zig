@@ -46,6 +46,7 @@ pub const Node = struct {
     pub const Flags = struct {
         mount_point: bool = false,
         read_only: bool = false,
+        is_tty: bool = false,
     };
 
     pub const Type = enum {
@@ -114,7 +115,9 @@ pub const Node = struct {
             try open_fn(self);
         }
         self.opens.ref();
-        if (self.file_system) |fs| { fs.opens.ref(); }
+        if (self.file_system) |fs| {
+            fs.opens.ref();
+        }
     }
 
     pub fn close(self: *Node) !void {

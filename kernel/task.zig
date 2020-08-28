@@ -1,6 +1,5 @@
 // Generic Scheduler for Shinkou.
 // Looking for how we run processes? Check `process.zig`.
-// (C) 2020 Ronsor Labs.
 
 const std = @import("std");
 const platform = @import("platform.zig");
@@ -11,9 +10,11 @@ const Cookie = util.Cookie;
 pub const Error = error{NoSuchTask};
 
 pub const Task = struct {
-    pub const Id = u24;
+    pub const Id = i24;
     pub const EntryPoint = fn (task: *Task) callconv(.Async) void;
     pub const frame_data_align = @alignOf(@Frame(sampleTask));
+
+    pub const KernelParentId: Task.Id = -1;
 
     parent_tid: ?Task.Id,
     tid: Task.Id,
@@ -33,13 +34,18 @@ pub const Task = struct {
         return Task{ .tid = tid, .parent_tid = parent_tid, .entry_point = entry_point, .frame_data = frame_data, .cookie = cookie };
     }
 
-    pub fn yield(task: *Task) void {
-        task.frame_ptr = @frame();
+    pub fn yield(self: *Task) void {
+        self.frame_ptr = @frame();
         suspend;
     }
 
-    pub fn kill(task: *Task) void {
-        task.killed = true;
+    pub fn kill(self: *Task) void {
+        self.killed = true;
+    }
+
+    pub fn isKilled(self: *Task, peek: bool) bool { 
+        if (!peek and self.killed) self.parent_tid = null;
+        return self.killed;
     }
 };
 
@@ -62,7 +68,7 @@ pub const Scheduler = struct {
         }
     }
 
-    pub fn spawn(self: *Scheduler, parent_tid: ?Task.Id, entry_point: Task.EntryPoint, cookie: Cookie, stack_size: usize) !Task.Id {
+    pub fn spawn(self: *Scheduler, parent_tid: ?Task.Id, entry_point: Task.EntryPoint, cookie: Cookie, stack_size: usize) !*Task {
         var new_index: Task.Id = undefined;
         while (true) {
             new_index = @atomicRmw(Task.Id, &self.next_spawn_tid, .Add, 1, .SeqCst);
@@ -78,7 +84,7 @@ pub const Scheduler = struct {
         task.* = Task.init(new_index, parent_tid, entry_point, frame_data, cookie);
 
         _ = try self.tasks.put(new_index, task);
-        return new_index;
+        return task;
     }
 
     pub fn loopOnce(self: *Scheduler) void {
@@ -94,7 +100,7 @@ pub const Scheduler = struct {
                 _ = @asyncCall(task.frame_data, {}, task.entry_point, .{task});
             task.started = true;
 
-            if (task.parent_tid != null and self.tasks.get(task.parent_tid.?) == null)
+            if (task.parent_tid != null and task.parent_tid.? != Task.KernelParentId and self.tasks.get(task.parent_tid.?) == null)
                 task.parent_tid = null;
 
             if (task.killed and task.parent_tid == null) {

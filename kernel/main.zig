@@ -5,6 +5,7 @@ const platform = @import("platform.zig");
 const w3 = @import("wasm3.zig");
 const vfs = @import("vfs.zig");
 const task = @import("task.zig");
+const process = @import("process.zig");
 
 const utsname = @import("utsname.zig");
 
@@ -40,10 +41,10 @@ pub fn panic(message: []const u8, stack_trace: ?*builtin.StackTrace) noreturn {
 // Generated at build time
 const initrd_zip = @embedFile("../output/temp/initrd.zip");
 
-var sched: task.Scheduler = undefined;
+var prochost: process.ProcessHost = undefined;
 
 pub fn timer_tick() void {
-    if (!systemFlags.coop_multitask) sched.yieldCurrent();
+//    if (!systemFlags.coop_multitask) sched.yieldCurrent();
 }
 
 pub fn main() void {
@@ -72,15 +73,25 @@ pub fn main() void {
     var rootfs = zipfs.Fs.mount(allocator, &dev_initrd, null) catch unreachable;
     platform.earlyprintk("Mounted initial ramdisk.\r\n");
 
-    // Setup task scheduler
-    sched = task.Scheduler.init(allocator) catch unreachable;
+    // Setup process host
+    prochost = process.ProcessHost.init(allocator) catch unreachable;
 
     platform.setTimer(timer_tick);
 
     // TODO: spawn kernel thread
     //_ = sched.spawn(null, task.sampleTask, null, 4096) catch unreachable;
 
-    while (true) sched.loopOnce();
+    var bin_file = rootfs.find("bin") catch unreachable;
+    var init_file = bin_file.node.find("init") catch unreachable;
+
+    var init_data = allocator.alloc(u8, init_file.node.stat.size) catch unreachable;
+    _ = init_file.node.read(0, init_data) catch unreachable;
+
+    platform.earlyprintf("Size of /bin/init in bytes: {}.\r\n", .{init_data.len});
+
+    _ = prochost.createProcess(.{ .runtime_type = .wasm, .runtime_arg = .{ .wasm_bytes = init_data } });
+
+    while (true) prochost.scheduler.loopOnce();
     // Should be unreachable;
     @panic("kernel attempted to exit!");
 }

@@ -123,15 +123,21 @@ const NodeImpl = struct {
 
         if (!self.stat.flags.mount_point) {
             var my_path_raw: [1024]u8 = undefined;
+            // Important note! my_path_len includes the null-terminator in its length calculations! 
             var my_path_len = c.mz_zip_reader_get_filename(&fs_impl.archive, node_impl.miniz_stat.m_file_index, &my_path_raw, 1024);
             if (my_path_len == 0) return vfs.Error.ReadFailed;
-            var my_path = my_path_raw[0..my_path_len];
+            var my_path = my_path_raw[0..my_path_len-1];
 
             var full_path_raw: [1024]u8 = undefined;
-            var full_path = try std.fmt.bufPrint(full_path_raw[0..], "{}/{}", .{ my_path, path });
+            var full_path = try std.fmt.bufPrint(full_path_raw[0..], "{}{}", .{ my_path, path });
             full_path_raw[full_path.len] = 0;
 
             var mz_ok = c.mz_zip_reader_locate_file_v2(&fs_impl.archive, full_path.ptr, null, 0, &index);
+            if (mz_ok == 0) {
+                full_path = try std.fmt.bufPrint(full_path_raw[0..], "{}{}/", .{ my_path, path });
+                full_path_raw[full_path.len] = 0;                
+                mz_ok = c.mz_zip_reader_locate_file_v2(&fs_impl.archive, full_path.ptr, null, 0, &index);
+            }
             if (mz_ok == 0) return vfs.Error.NoSuchFile;
         } else {
             var full_path_raw: [1024]u8 = undefined;
@@ -140,8 +146,15 @@ const NodeImpl = struct {
             full_path_raw[full_path.len] = 0;
 
             var mz_ok = c.mz_zip_reader_locate_file_v2(&fs_impl.archive, full_path.ptr, null, 0, &index);
+            if (mz_ok == 0) {
+                full_path = full_path_raw[0..path.len+1];
+                full_path_raw[full_path.len-1] = '/';
+                full_path_raw[full_path.len] = 0;
+                mz_ok = c.mz_zip_reader_locate_file_v2(&fs_impl.archive, full_path.ptr, null, 0, &index);
+            }
             if (mz_ok == 0) return vfs.Error.NoSuchFile;
         }
+
 
         var node = try NodeImpl.init(self.file_system.?, index, null);
 
@@ -166,8 +179,7 @@ const NodeImpl = struct {
         if (!self.stat.flags.mount_point) {
             var my_path_len = c.mz_zip_reader_get_filename(&fs_impl.archive, node_impl.miniz_stat.m_file_index, &my_path_raw, 1024);
             if (my_path_len == 0) return vfs.Error.ReadFailed;
-            my_path_raw[my_path_len] = '/';
-            my_path = my_path_raw[0 .. my_path_len + 1];
+            my_path = my_path_raw[0 .. my_path_len - 1];
         }
 
         var true_index: usize = 0;
@@ -177,11 +189,20 @@ const NodeImpl = struct {
             var mz_ok = c.mz_zip_reader_file_stat(&fs_impl.archive, @truncate(c.mz_uint, total_index), &file_info);
             if (mz_ok == 0) return vfs.Error.ReadFailed;
 
-            var path_slice: []u8 = std.mem.spanZ(@ptrCast([*c]u8, &file_info.m_filename));
+            var path_slice: []u8 = std.mem.spanZ(@ptrCast([*c]u8, file_info.m_filename[0..]));
+            if (std.mem.eql(u8, my_path, path_slice)) {
+                total_index += 1;
+                continue;
+
+            }
+
             if (my_path.len > 0 and !std.mem.startsWith(u8, path_slice, my_path)) {
                 total_index += 1;
                 continue;
             }
+
+            path_slice = path_slice[my_path.len..];
+
             if (std.mem.endsWith(u8, path_slice, "/")) {
                 path_slice = path_slice[0 .. path_slice.len - 1];
             }
