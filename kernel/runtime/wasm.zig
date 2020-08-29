@@ -25,30 +25,30 @@ pub const Runtime = struct {
     entry_point: w3.Function = undefined,
 
     pub fn init(proc: *Process, args: Runtime.Args) !Runtime {
-         var ret = Runtime{ .proc = proc, .wasm3 = try w3.Runtime.init(args.stack_size) };
-         ret.wasi = try w3.NativeModule.init(proc.allocator, "", wasi.Preview1, proc);
-         errdefer ret.wasi.deinit();
+        var ret = Runtime{ .proc = proc, .wasm3 = try w3.Runtime.init(args.stack_size) };
+        ret.wasi = try w3.NativeModule.init(proc.allocator, "", wasi.Preview1, proc);
+        errdefer ret.wasi.deinit();
 
-         ret.module = try ret.wasm3.parseAndLoadModule(args.wasm_image);
-         try ret.linkWasi(ret.module);
+        ret.module = try ret.wasm3.parseAndLoadModule(args.wasm_image);
+        try ret.linkWasi(ret.module);
 
-         ret.entry_point = try ret.wasm3.findFunction("_start");
+        ret.entry_point = try ret.wasm3.findFunction("_start");
 
-         return ret;
+        return ret;
     }
 
     pub fn linkWasi(self: *Runtime, module: w3.Module) !void {
-         for (WasiPreview1.namespaces) |namespace| {
-             self.wasi.link(namespace, module);
-         }
+        for (wasi.Preview1.namespaces) |namespace| {
+            self.wasi.link(namespace, module);
+        }
     }
 
     pub fn start(self: *Runtime) void {
-         _ = self.entry_point.callVoid(void) catch null;
+        _ = self.entry_point.callVoid(void) catch null;
     }
 
     pub fn deinit(self: *Runtime) void {
-         self.wasi.deinit();
-         self.proc.allocator.destroy(self);
+        self.wasi.deinit();
+        self.proc.allocator.destroy(self);
     }
 };

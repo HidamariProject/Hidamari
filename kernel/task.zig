@@ -45,7 +45,7 @@ pub const Task = struct {
         self.killed = true;
     }
 
-    pub fn wait(self: *Task, peek: bool) bool { 
+    pub fn wait(self: *Task, peek: bool) bool {
         if (!peek and self.killed) self.parent_tid = null;
         return self.killed;
     }
@@ -94,7 +94,6 @@ pub const Scheduler = struct {
             var task = entry.value;
             self.current_tid = entry.key;
 
-
             if (!task.killed and task.started)
                 resume task.frame_ptr
             else if (!task.killed)
@@ -118,4 +117,3 @@ pub const Scheduler = struct {
         self.current_tid = null;
     }
 };
-

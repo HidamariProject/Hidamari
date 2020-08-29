@@ -15,14 +15,24 @@ pub const RuntimeType = enum {
 };
 
 pub const Runtime = union(RuntimeType) {
-    wasm: wasm_rt.Runtime, native: void, zpu: void,
+    wasm: wasm_rt.Runtime,
+    native: void,
+    zpu: void,
 
     fn start(self: *Runtime) void {
-       switch(self.*) { .wasm => self.wasm.start(), .native => unreachable, else => unreachable }
+        switch (self.*) {
+            .wasm => self.wasm.start(),
+            .native => unreachable,
+            else => unreachable,
+        }
     }
 
     fn deinit(self: *Runtime) void {
-       switch(self.*) { .wasm => self.wasm.deinit(), .native => unreachable, else => unreachable }
+        switch (self.*) {
+            .wasm => self.wasm.deinit(),
+            .native => unreachable,
+            else => unreachable,
+        }
     }
 };
 
@@ -79,9 +89,11 @@ pub const Process = struct {
         proc.name = try proc.allocator.dupe(u8, arg.name);
         proc.credentials = arg.credentials;
 
-        proc.runtime = switch(arg.runtime_arg) {
+        proc.runtime = switch (arg.runtime_arg) {
             .wasm => .{ .wasm = try wasm_rt.Runtime.init(proc, arg.runtime_arg.wasm) },
-            else => { return Error.NotImplemented; }
+            else => {
+                return Error.NotImplemented;
+            },
         };
         errdefer proc.runtime.deinit();
 

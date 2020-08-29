@@ -108,4 +108,3 @@ pub fn main() void {
     // Should be unreachable;
     @panic("init exited!");
 }
-

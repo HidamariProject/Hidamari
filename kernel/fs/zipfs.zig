@@ -123,10 +123,10 @@ const NodeImpl = struct {
 
         if (!self.stat.flags.mount_point) {
             var my_path_raw: [1024]u8 = undefined;
-            // Important note! my_path_len includes the null-terminator in its length calculations! 
+            // Important note! my_path_len includes the null-terminator in its length calculations!
             var my_path_len = c.mz_zip_reader_get_filename(&fs_impl.archive, node_impl.miniz_stat.m_file_index, &my_path_raw, 1024);
             if (my_path_len == 0) return vfs.Error.ReadFailed;
-            var my_path = my_path_raw[0..my_path_len-1];
+            var my_path = my_path_raw[0 .. my_path_len - 1];
 
             var full_path_raw: [1024]u8 = undefined;
             var full_path = try std.fmt.bufPrint(full_path_raw[0..], "{}{}", .{ my_path, path });
@@ -135,7 +135,7 @@ const NodeImpl = struct {
             var mz_ok = c.mz_zip_reader_locate_file_v2(&fs_impl.archive, full_path.ptr, null, 0, &index);
             if (mz_ok == 0) {
                 full_path = try std.fmt.bufPrint(full_path_raw[0..], "{}{}/", .{ my_path, path });
-                full_path_raw[full_path.len] = 0;                
+                full_path_raw[full_path.len] = 0;
                 mz_ok = c.mz_zip_reader_locate_file_v2(&fs_impl.archive, full_path.ptr, null, 0, &index);
             }
             if (mz_ok == 0) return vfs.Error.NoSuchFile;
@@ -147,14 +147,13 @@ const NodeImpl = struct {
 
             var mz_ok = c.mz_zip_reader_locate_file_v2(&fs_impl.archive, full_path.ptr, null, 0, &index);
             if (mz_ok == 0) {
-                full_path = full_path_raw[0..path.len+1];
-                full_path_raw[full_path.len-1] = '/';
+                full_path = full_path_raw[0 .. path.len + 1];
+                full_path_raw[full_path.len - 1] = '/';
                 full_path_raw[full_path.len] = 0;
                 mz_ok = c.mz_zip_reader_locate_file_v2(&fs_impl.archive, full_path.ptr, null, 0, &index);
             }
             if (mz_ok == 0) return vfs.Error.NoSuchFile;
         }
-
 
         var node = try NodeImpl.init(self.file_system.?, index, null);
 
@@ -193,7 +192,6 @@ const NodeImpl = struct {
             if (std.mem.eql(u8, my_path, path_slice)) {
                 total_index += 1;
                 continue;
-
             }
 
             if (my_path.len > 0 and !std.mem.startsWith(u8, path_slice, my_path)) {

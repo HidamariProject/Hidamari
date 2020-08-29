@@ -25,4 +25,3 @@ pub const RefCount = struct {
         self.refs -= 1;
     }
 };
-
