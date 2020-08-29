@@ -182,6 +182,11 @@ pub const Node = struct {
         }
         return Error.NotImplemented;
     }
+
+    pub fn findRecursive(self: *Node, path: []const u8) !File {
+
+    }
+
 };
 
 pub const File = struct {

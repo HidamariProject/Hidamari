@@ -9,16 +9,18 @@ const Cookie = util.Cookie;
 
 pub const Error = error{NoSuchTask};
 
+fn nop(task: *Task) void {}
+
 pub const Task = struct {
     pub const Id = i24;
     pub const EntryPoint = fn (task: *Task) callconv(.Async) void;
-    pub const frame_data_align = @alignOf(@Frame(sampleTask));
+    pub const frame_data_align = @alignOf(@Frame(nop));
 
     pub const KernelParentId: Task.Id = -1;
 
     parent_tid: ?Task.Id,
     tid: Task.Id,
-    cookie_meta: usize,
+    cookie_meta: usize = undefined,
     cookie: Cookie,
 
     frame_data: []align(Task.frame_data_align) u8,
@@ -43,7 +45,7 @@ pub const Task = struct {
         self.killed = true;
     }
 
-    pub fn isKilled(self: *Task, peek: bool) bool { 
+    pub fn wait(self: *Task, peek: bool) bool { 
         if (!peek and self.killed) self.parent_tid = null;
         return self.killed;
     }
@@ -92,11 +94,10 @@ pub const Scheduler = struct {
             var task = entry.value;
             self.current_tid = entry.key;
 
-            if (task.killed) continue;
 
-            if (task.started)
+            if (!task.killed and task.started)
                 resume task.frame_ptr
-            else
+            else if (!task.killed)
                 _ = @asyncCall(task.frame_data, {}, task.entry_point, .{task});
             task.started = true;
 
@@ -118,25 +119,3 @@ pub const Scheduler = struct {
     }
 };
 
-fn subFn(t: *Task) void {
-    platform.earlyprintk("did something\r\n");
-    t.yield();
-    platform.earlyprintk("and we're back\r\n");
-}
-
-pub fn sampleTask(t: *Task) void {
-    var n: u64 = 0;
-    t.yield();
-    while (true) {
-        platform.earlyprintf("tid={} n={}\r\n", .{ t.tid, n });
-        n += 1;
-        //subFn(t);
-    }
-}
-
-pub fn tryit(allocator: *std.mem.Allocator) !void {
-    var sched = try Scheduler.init(allocator);
-    _ = try sched.spawn(null, sampleTask, null, 4096);
-    _ = try sched.spawn(null, sampleTask, null, 4096);
-    while (true) sched.loop_once();
-}

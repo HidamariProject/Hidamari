@@ -2,7 +2,7 @@ pub const RawCookie = struct {
     _dummy: u8,
 
     pub fn as(self: *RawCookie, comptime T: type) *T {
-        return @ptrCast(*T, @alignCast(@alignOf(*T), self));
+        return @ptrCast(*T, @alignCast(@alignOf(T), self));
     }
 };
 
@@ -25,3 +25,4 @@ pub const RefCount = struct {
         self.refs -= 1;
     }
 };
+

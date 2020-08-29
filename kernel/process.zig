@@ -15,7 +15,19 @@ pub const RuntimeType = enum {
 };
 
 pub const Runtime = union(RuntimeType) {
-    wasm: wasm_rt.Runtime, native: void, zpu: void
+    wasm: wasm_rt.Runtime, native: void, zpu: void,
+
+    fn start(self: *Runtime) void {
+       switch(self.*) { .wasm => self.wasm.start(), .native => unreachable, else => unreachable }
+    }
+
+    fn deinit(self: *Runtime) void {
+       switch(self.*) { .wasm => self.wasm.deinit(), .native => unreachable, else => unreachable }
+    }
+};
+
+pub const RuntimeArg = union(RuntimeType) {
+    wasm: wasm_rt.Runtime.Args, native: void, zpu: void
 };
 
 pub const Credentials = struct {
@@ -30,44 +42,45 @@ pub const Process = struct {
 
     pub const Arg = struct {
         name: []const u8 = "<unnamed>",
-        creds: Credentials = .{},
-        runtime_type: RuntimeType,
-        runtime_arg: anytype,
+        credentials: Credentials = .{},
+        runtime_arg: RuntimeArg,
 
         stack_size: usize = 32768,
-        parent_pid: ?Process.Id,
+        parent_pid: ?Process.Id = null,
     };
 
     host: *ProcessHost,
-    arena_allocator: std.heap.ArenaAllocator,
-    allocator: *std.mem.Allocator,
+    arena_allocator: std.heap.ArenaAllocator = undefined,
+    allocator: *std.mem.Allocator = undefined,
 
     name: []const u8 = "<unnamed>",
-    credentials: Credentials = {},
+    credentials: Credentials = .{},
     runtime: Runtime = undefined,
 
-    openedNodes: std.AutoHashMap(u32, *vfs.Node),
+    openedNodes: std.AutoHashMap(u32, *vfs.Node) = undefined,
+    exit_code: ?u32 = undefined,
 
-    bogus_task: ?*task.Task,
+    internal_task: ?*task.Task = null,
 
-    inline fn task(self: *Process) *task.Task {
-        if (self.bogus_task) |task| { return task; }
-        return @fieldParentPtr(task.Task, "cookie", self);
+    pub inline fn task(self: *Process) *task.Task {
+        return self.internal_task.?;
     }
 
     pub fn init(host: *ProcessHost, arg: Process.Arg) !*Process {
         var proc = try host.allocator.create(Process);
 
-        proc.* = .{ .host = host, .name = try host.allocator.dupe(u8, arg.name), .credentials = arg.creds };
-        errdefer host.allocator.free(proc.name);
+        proc.* = .{ .host = host };
 
-        proc.arena_allocator = std.heap.ArenaAllocator.init(&host.allocator);
+        proc.arena_allocator = std.heap.ArenaAllocator.init(host.allocator);
         errdefer proc.arena_allocator.deinit();
 
         proc.allocator = &proc.arena_allocator.allocator;
 
-        proc.runtime = switch(arg.runtime_type) {
-            .wasm => wasm_rt.Runtime.init(proc, arg.runtime_arg),
+        proc.name = try proc.allocator.dupe(u8, arg.name);
+        proc.credentials = arg.credentials;
+
+        proc.runtime = switch(arg.runtime_arg) {
+            .wasm => .{ .wasm = try wasm_rt.Runtime.init(proc, arg.runtime_arg.wasm) },
             else => { return Error.NotImplemented; }
         };
         errdefer proc.runtime.deinit();
@@ -76,8 +89,9 @@ pub const Process = struct {
     }
 
     pub fn entryPoint(self_task: *task.Task) void {
-        var process = self_task.cookie.as(Process);
+        var process = self_task.cookie.?.as(Process);
         process.runtime.start();
+        self_task.killed = true;
     }
 
     pub fn deinit(self: *Process) void {
@@ -86,13 +100,9 @@ pub const Process = struct {
     }
 
     pub fn deinitTrampoline(self_task: *task.Task) void {
-        self_task.cookie.as(Process).deinit();
+        self_task.cookie.?.as(Process).deinit();
     }
 };
-
-fn nop() void {
-
-}
 
 pub const ProcessHost = struct {
     scheduler: task.Scheduler,
@@ -102,12 +112,19 @@ pub const ProcessHost = struct {
         return ProcessHost{ .scheduler = try task.Scheduler.init(allocator), .allocator = allocator };
     }
 
-    pub inline fn createProcess(self: *ProcessHost, options: Process.Arg) !*Task {
-        var proc = Process.init(self.allocator, options);
-        var task = try self.scheduler.spawn(options.parent_pid, proc.entryPoint, util.asCookie(proc), options.stack_size);
-        task.deinit = proc.deinitTrampoline;
+    pub inline fn createProcess(self: *ProcessHost, options: Process.Arg) !*Process {
+        var proc = try Process.init(self, options);
+        var ret = try self.scheduler.spawn(options.parent_pid, Process.entryPoint, util.asCookie(proc), options.stack_size);
+        proc.internal_task = ret;
+        ret.deinit = Process.deinitTrampoline;
 
-        return task;
+        return proc;
+    }
+
+    pub inline fn get(self: *ProcessHost, id: Process.Id) ?*Process {
+        var my_task = self.scheduler.tasks.get(id);
+        if (my_task == null) return null;
+        return my_task.?.cookie.?.as(Process);
     }
 
     pub fn loopOnce(self: *ProcessHost) void {

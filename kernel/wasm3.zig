@@ -9,7 +9,7 @@ const c = @cImport({
     @cInclude("wasm3/source/m3_env.h");
 });
 
-const Error = error{
+pub const Error = error{
     Unknown,
     CantCreateEnv,
     CantCreateRuntime,
@@ -20,7 +20,7 @@ const Error = error{
     Abort,
 };
 
-const WasmPtr = struct { offset: u32 };
+pub const WasmPtr = struct { offset: u32 };
 
 fn m3ResultToError(m3res: c.M3Result, comptime T: type) !T {
     if (m3res == null) {
@@ -31,7 +31,7 @@ fn m3ResultToError(m3res: c.M3Result, comptime T: type) !T {
         };
     }
     const err = switch (m3res) {
-        c.m3Err_argumentCountMismatch => Error.InvalidNumArgs,
+//        c.m3Err_argumentCountMismatch => Error.InvalidNumArgs,
         else => Error.Unknown,
     };
     return err;
@@ -88,22 +88,23 @@ pub const ZigFunctionEx = struct {
     cookie: Cookie = null,
     _orig: fn () void,
 
-    pub fn init(name: [*c]const u8, f: anytype, cookie_type: ?type) ZigFunctionEx {
+    pub fn init(name: [*c]const u8, f: anytype) ZigFunctionEx {
         comptime var rawftype = @TypeOf(f);
         comptime var ftype = @typeInfo(rawftype);
-        comptime var atype = @typeInfo(ftype.Fn.args[1].arg_type.?);
+        comptime var fninfo = ftype.Fn;
+        comptime var atype = @typeInfo(fninfo.args[1].arg_type.?);
         comptime var sig: [atype.Struct.fields.len + 2 + 1 + 1]u8 = undefined;
         var anonFn = struct {
             pub fn anon(ctx: ZigFunctionCtx) anyerror!void {
-                const args = ctx.args(ftype.Fn.args[1].arg_type.?);
-                const me = @ptrCast(*ZigFunctionEx, @alignCast(@alignOf(ZigFunctionEx), ctx.cookie));
+                const args = ctx.args(fninfo.args[1].arg_type.?);
+                const me = @ptrCast(*ZigFunctionEx, @alignCast(@alignOf(ZigFunctionEx), ctx.trampoline));
                 var res = @call(.{}, @ptrCast(rawftype, me._orig), .{ ctx, args }) catch |err| return err;
-                if (@typeInfo(ftype.Fn.return_type.?).ErrorUnion.payload == void) return else ctx.ret(res);
+                if (@typeInfo(fninfo.return_type.?).ErrorUnion.payload == void) return else ctx.ret(res);
             }
         }.anon;
         var ret = ZigFunctionEx{ .name = name, .sig = &sig, .call = anonFn, ._orig = @ptrCast(fn () void, f) };
         comptime {
-            sig[0] = zigToWasmType(@typeInfo(ftype.Fn.return_type.?).ErrorUnion.payload); // TODO: real thing
+            sig[0] = zigToWasmType(@typeInfo(fninfo.return_type.?).ErrorUnion.payload); // TODO: real thing
             sig[1] = '(';
             var i: usize = 2;
             inline for (atype.Struct.fields) |arg| {
@@ -131,16 +132,19 @@ pub const ZigFunctionEx = struct {
         }
     }
 
-    pub inline fn initMany(comptime prefix: []const u8, s: anytype) [lenInitMany(@TypeOf(s))]ZigFunctionEx {
+    pub inline fn initMany(comptime prefix: []const u8, comptime s: type) [lenInitMany(prefix, s)]ZigFunctionEx {
         comptime {
-            var ret: [lenInitMany(@TypeOf(s))]ZigFunctionEx = undefined;
-            var typ = @typeInfo(@TypeOf(s));
+            var ret: [lenInitMany(prefix, s)]ZigFunctionEx = undefined;
+            var t = @typeInfo(s);
             var i = 0;
             for (t.Struct.decls) |decl| {
-                if (std.mem.startsWith(u8, decl.name)) {
+                if (std.mem.startsWith(u8, decl.name, prefix)) {
                     switch (decl.data) {
                         .Fn => {
-                            ret[i] = init(decl.name[prefix.len..], @field(s, decl.name));
+                            var name: [decl.name.len - prefix.len + 1:0]u8 = undefined;
+                            std.mem.copy(u8, name[0..], decl.name[prefix.len..]);
+                            name[name.len - 1] = 0;
+                            ret[i] = init(name[0..], @field(s, decl.name));
                             i += 1;
                         },
                         else => {},
@@ -156,7 +160,8 @@ pub const ZigFunctionCtx = struct {
     runtime: Runtime,
     sp: RuntimeStack,
     memory: [*]u8,
-    cookie: ?*c_void,
+    trampoline: ?*c_void,
+    cookie: Cookie = null,
 
     pub inline fn args(self: ZigFunctionCtx, comptime T: type) T {
         var out: T = undefined;
@@ -187,6 +192,29 @@ pub const ZigFunctionCtx = struct {
     }
 };
 
+pub const NativeModule = struct {
+    allocator: *std.mem.Allocator,
+    functions: []ZigFunctionEx,
+
+    pub fn init(allocator: *std.mem.Allocator, comptime prefix: []const u8, impl: type, cookie: anytype) !NativeModule {
+        var ret = NativeModule{ .allocator = allocator, .functions = try allocator.dupe(ZigFunctionEx, ZigFunctionEx.initMany(prefix, impl)[0..]) };
+        for (ret.functions) |_, i| {
+            ret.functions[i].cookie = util.asCookie(cookie);
+        }
+        return ret;
+    }
+
+    pub fn link(self: NativeModule, namespace: [:0]const u8, module: Module) void {
+        for (self.functions) |_, i| {
+            _ = module.linkRawZigFunctionEx(namespace, &self.functions[i]) catch null;
+        }
+    }
+
+    pub fn deinit(self: NativeModule) void {
+        self.allocator.free(self.functions);
+    }
+};
+
 pub const Module = struct {
     module: c.IM3Module,
 
@@ -213,7 +241,7 @@ pub const Module = struct {
     fn linkZigFunctionHelper(runtime: c.IM3Runtime, sp: [*c]u64, mem: ?*c_void, cookie: ?*c_void) callconv(.C) ?*c_void {
         var f: ZigFunction = @intToPtr(ZigFunction, @ptrToInt(cookie));
         var bogusRt = Runtime{ .runtime = runtime, .environ = undefined };
-        f(ZigFunctionCtx{ .runtime = bogusRt, .sp = RuntimeStack.init(sp), .memory = @ptrCast([*]u8, mem), .cookie = cookie }) catch |err| return @intToPtr(*c_void, @ptrToInt(c.m3Err_trapAbort)); // TODO: memory safety
+        f(ZigFunctionCtx{ .runtime = bogusRt, .sp = RuntimeStack.init(sp), .memory = @ptrCast([*]u8, mem) }) catch |err| return @intToPtr(*c_void, @ptrToInt(c.m3Err_trapAbort)); // TODO: memory safety
         return null;
     }
 
@@ -224,7 +252,7 @@ pub const Module = struct {
     fn linkZigFunctionHelperEx(runtime: c.IM3Runtime, sp: [*c]u64, mem: ?*c_void, cookie: ?*c_void) callconv(.C) ?*c_void {
         var f: *ZigFunctionEx = @intToPtr(*ZigFunctionEx, @ptrToInt(cookie));
         var bogusRt = Runtime{ .runtime = runtime, .environ = undefined };
-        f.call(ZigFunctionCtx{ .runtime = bogusRt, .sp = RuntimeStack.init(sp), .memory = @ptrCast([*]u8, mem), .cookie = f.cookie }) catch |err| return @intToPtr(*c_void, @ptrToInt(c.m3Err_trapAbort)); // TODO: memory safety
+        f.call(ZigFunctionCtx{ .runtime = bogusRt, .sp = RuntimeStack.init(sp), .memory = @ptrCast([*]u8, mem), .cookie = f.cookie, .trampoline = f }) catch |err| return @intToPtr(*c_void, @ptrToInt(c.m3Err_trapAbort)); // TODO: memory safety
         return null;
     }
 

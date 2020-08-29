@@ -1,26 +1,13 @@
 // The WebAssembly runtime
 
+const std = @import("std");
 const process = @import("../process.zig");
 const platform = @import("../platform.zig");
 const util = @import("../util.zig");
 const w3 = @import("../wasm3.zig");
+const wasi = @import("wasm/wasi.zig");
 
 const Process = process.Process;
-
-inline fn myProc(ctx: *w3.ZigFunctionCtx) *Process {
-    return ctx.cookie.as(Process);
-}
-
-const WasiPreview1 = struct {
-    pub const namespaces = [_][:0]const u8{"wasi_unstable", "wasi_snapshot_preview1"};
-    pub const num_exports = w3.ZigFunctionEx.lenInitMany("", WasiPreview1);
-
-    pub fn proc_exit(ctx: *w3.ZigFunctionCtx, args: struct { exit_code: u32 }) !void {
-        myProc(ctx).exit_code = args.exit_code;
-        return w3.Error.Exit;
-    }
-};
-
 
 pub const Runtime = struct {
     pub const Args = struct {
@@ -34,36 +21,34 @@ pub const Runtime = struct {
     wasm3: w3.Runtime,
     module: w3.Module = undefined,
 
-    wasip1_funcs: []w3.ZigFunctionEx,
-    entrypoint: w3.Function,
+    wasi: w3.NativeModule = undefined,
+    entry_point: w3.Function = undefined,
 
-    pub fn init(args: Runtime.Args) !*Runtime {
+    pub fn init(proc: *Process, args: Runtime.Args) !Runtime {
          var ret = Runtime{ .proc = proc, .wasm3 = try w3.Runtime.init(args.stack_size) };
-         ret.wasip1_funcs = try ret.proc.allocator.dupe(w3.ZigFunctionEx.initMany("", WasiPreview1)[0..]);
+         ret.wasi = try w3.NativeModule.init(proc.allocator, "", wasi.Preview1, proc);
+         errdefer ret.wasi.deinit();
 
          ret.module = try ret.wasm3.parseAndLoadModule(args.wasm_image);
-         ret.linkWasi(module);
+         try ret.linkWasi(ret.module);
 
-         ret.entry_point = ret.wasm3.findFunction("_start");
+         ret.entry_point = try ret.wasm3.findFunction("_start");
 
          return ret;
     }
 
-    pub fn linkWasi(self: *Runtime, module: w3.Module) void {
+    pub fn linkWasi(self: *Runtime, module: w3.Module) !void {
          for (WasiPreview1.namespaces) |namespace| {
-             for (self.wasip1_funcs) |_, i| {
-                 _ = module.linkRawZigFunctionEx(namespace, &self.wasip1_funcs[i]) catch null;
-             }
+             self.wasi.link(namespace, module);
          }
     }
 
-    pub fn start() void {
-         self.entry_point.callVoid(void);
-         platform.earlyprintk("The program terminated. Awww\r\n");        
+    pub fn start(self: *Runtime) void {
+         _ = self.entry_point.callVoid(void) catch null;
     }
 
     pub fn deinit(self: *Runtime) void {
-         self.proc.allocator.free(self.wasip1_proc);
+         self.wasi.deinit();
          self.proc.allocator.destroy(self);
     }
 };
