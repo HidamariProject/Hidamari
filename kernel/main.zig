@@ -91,7 +91,7 @@ pub fn main() void {
 
     platform.earlyprintf("Size of /bin/init in bytes: {}.\r\n", .{init_data.len});
 
-    _ = prochost.createProcess(.{ .parent_pid = task.Task.KernelParentId, .runtime_arg = .{ .wasm = .{ .wasm_image = init_data } } }) catch unreachable;
+    _ = prochost.createProcess(.{ .parent_pid = task.Task.KernelParentId, .runtime_arg = .{ .wasm = .{ .wasm_image = init_data } } }) catch @panic("can't create init process!");
 
     while (!terminated) {
         prochost.scheduler.loopOnce();

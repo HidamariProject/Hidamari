@@ -77,3 +77,7 @@ pub const errno = enum {
     EXDEV,
     ENOTCAPABLE,
 };
+
+pub inline fn errnoInt(err: errno) u32 {
+    return @enumToInt(err);
+}

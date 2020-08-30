@@ -20,7 +20,36 @@ pub const Error = error{
     Abort,
 };
 
-pub const WasmPtr = struct { offset: u32 };
+pub const WasmPtr = extern struct { offset: u32 };
+
+// These types should be used for pointers because WASM memory can be unaligned
+pub const u32_ptr = *align(1) u32;
+pub const i32_ptr = *align(1) i32;
+pub const u64_ptr = *align(1) u64;
+pub const i64_ptr = *align(1) i64;
+
+pub const u32_ptr_many = [*]align(1) u32;
+pub const i32_ptr_many = [*]align(1) i32;
+pub const u64_ptr_many = [*]align(1) u64;
+pub const i64_ptr_many = [*]align(1) i64;
+
+const errorConversionPair = struct{a: c.M3Result, b: Error};
+var errorConversionTable_back: [256]errorConversionPair = undefined;
+var errorConversionTable_len: usize = 0;
+var errorConversionTable: ?[]errorConversionPair = null;
+
+inline fn errorConversionTableAddEntry(a: c.M3Result, b: Error) void {
+   errorConversionTable_back[errorConversionTable_len] = .{ .a = a, .b = b };
+   errorConversionTable_len += 1;
+}
+
+fn initErrorConversionTable() void {
+   const e = errorConversionTableAddEntry;
+   e(c.m3Err_argumentCountMismatch, Error.InvalidNumArgs);
+   e(c.m3Err_trapExit, Error.Exit);
+   e(c.m3Err_trapAbort, Error.Abort);
+   errorConversionTable = errorConversionTable_back[0..errorConversionTable_len];
+}
 
 fn m3ResultToError(m3res: c.M3Result, comptime T: type) !T {
     if (m3res == null) {
@@ -30,11 +59,23 @@ fn m3ResultToError(m3res: c.M3Result, comptime T: type) !T {
             return undefined;
         };
     }
-    const err = switch (m3res) {
-        //        c.m3Err_argumentCountMismatch => Error.InvalidNumArgs,
-        else => Error.Unknown,
-    };
-    return err;
+
+    if (errorConversionTable == null) initErrorConversionTable();
+    for (errorConversionTable.?) |entry| {
+        if (m3res == entry.a) return entry.b;
+    }
+
+    return Error.Unknown;
+}
+
+fn errorToM3Result(err: ?anyerror) c.M3Result {
+    if (err == null) return null;
+
+    if (errorConversionTable == null) initErrorConversionTable();
+    for (errorConversionTable.?) |entry| {
+        if (err.? == entry.b) return entry.a;
+    }
+    return c.m3Err_trapAbort;
 }
 
 pub const RuntimeStack = struct {
@@ -55,6 +96,7 @@ pub const RuntimeStack = struct {
     pub inline fn get(self: RuntimeStack, comptime T: type, index: usize) T {
         return switch (T) {
             u64 => self.stack[index],
+            usize => @truncate(usize, self.stack[index]),
             i64 => @intCast(i64, self.stack[index]),
             u32 => @truncate(u32, self.stack[index] & 0xFFFFFFFF),
             i32 => @truncate(i32, self.stack[index] & 0xFFFFFFFF),
@@ -79,6 +121,19 @@ fn zigToWasmType(comptime T: type) u8 {
     };
 }
 
+fn zigToWasmTypeMulti(comptime T: type, out: []u8) usize {
+    switch (@typeInfo(T)) {
+        .Pointer => |ptr| {
+            switch(ptr.size) {
+                .Slice => { out[0] = '*'; out[1] = 'i'; return 2; },
+                else => { out[0] = '*'; return 1; }
+            }
+        },
+        else => { out[0] = zigToWasmType(T); return 1; }
+    }
+    unreachable;
+}
+
 pub const ZigFunction = fn (ctx: ZigFunctionCtx) anyerror!void;
 
 pub const ZigFunctionEx = struct {
@@ -93,7 +148,7 @@ pub const ZigFunctionEx = struct {
         comptime var ftype = @typeInfo(rawftype);
         comptime var fninfo = ftype.Fn;
         comptime var atype = @typeInfo(fninfo.args[1].arg_type.?);
-        comptime var sig: [atype.Struct.fields.len + 2 + 1 + 1]u8 = undefined;
+        comptime var sig: [atype.Struct.fields.len * 2 + 2 + 1 + 1]u8 = undefined;
         var anonFn = struct {
             pub fn anon(ctx: ZigFunctionCtx) anyerror!void {
                 const args = ctx.args(fninfo.args[1].arg_type.?);
@@ -108,8 +163,7 @@ pub const ZigFunctionEx = struct {
             sig[1] = '(';
             var i: usize = 2;
             inline for (atype.Struct.fields) |arg| {
-                sig[i] = zigToWasmType(arg.field_type);
-                i += 1;
+                i += zigToWasmTypeMulti(arg.field_type, sig[i..sig.len]);
             }
             sig[i] = ')';
             sig[i + 1] = 0;
@@ -175,9 +229,17 @@ pub const ZigFunctionCtx = struct {
                 },
                 else => {
                     switch (@typeInfo(field.field_type)) {
-                        .Pointer => {
-                            @field(out, field.name) = @ptrCast(field.field_type, &self.memory[self.sp.get(u64, i)]);
-                            i += 1;
+                        .Pointer => |ptr| {
+                            switch(ptr.size) {
+                                .One, .Many => { @field(out, field.name) = @ptrCast(field.field_type, @alignCast(@alignOf(field.field_type), &self.memory[self.sp.get(usize, i)])); i += 1; },
+                                .Slice => {
+                                    var rawptr = @ptrCast([*]align(1) ptr.child, @alignCast(1, &self.memory[self.sp.get(usize, i)]));
+                                    var len = self.sp.get(usize, i + 1);
+                                    @field(out, field.name) = rawptr[0..len];
+                                    i += 2;
+                                },
+                                else => @compileError("Invalid pointer type"),
+                            }
                         },
                         else => @compileError("Invalid type"),
                     }
@@ -241,7 +303,7 @@ pub const Module = struct {
     fn linkZigFunctionHelper(runtime: c.IM3Runtime, sp: [*c]u64, mem: ?*c_void, cookie: ?*c_void) callconv(.C) ?*c_void {
         var f: ZigFunction = @intToPtr(ZigFunction, @ptrToInt(cookie));
         var bogusRt = Runtime{ .runtime = runtime, .environ = undefined };
-        f(ZigFunctionCtx{ .runtime = bogusRt, .sp = RuntimeStack.init(sp), .memory = @ptrCast([*]u8, mem) }) catch |err| return @intToPtr(*c_void, @ptrToInt(c.m3Err_trapAbort)); // TODO: memory safety
+        f(ZigFunctionCtx{ .runtime = bogusRt, .sp = RuntimeStack.init(sp), .memory = @ptrCast([*]u8, mem) }) catch |err| return @intToPtr(*c_void, @ptrToInt(errorToM3Result(err)));
         return null;
     }
 
@@ -252,7 +314,7 @@ pub const Module = struct {
     fn linkZigFunctionHelperEx(runtime: c.IM3Runtime, sp: [*c]u64, mem: ?*c_void, cookie: ?*c_void) callconv(.C) ?*c_void {
         var f: *ZigFunctionEx = @intToPtr(*ZigFunctionEx, @ptrToInt(cookie));
         var bogusRt = Runtime{ .runtime = runtime, .environ = undefined };
-        f.call(ZigFunctionCtx{ .runtime = bogusRt, .sp = RuntimeStack.init(sp), .memory = @ptrCast([*]u8, mem), .cookie = f.cookie, .trampoline = f }) catch |err| return @intToPtr(*c_void, @ptrToInt(c.m3Err_trapAbort)); // TODO: memory safety
+        f.call(ZigFunctionCtx{ .runtime = bogusRt, .sp = RuntimeStack.init(sp), .memory = @ptrCast([*]u8, mem), .cookie = f.cookie, .trampoline = f }) catch |err| return @intToPtr(*c_void, @ptrToInt(errorToM3Result(err)));
         return null;
     }
 

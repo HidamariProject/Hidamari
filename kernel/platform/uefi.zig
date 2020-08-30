@@ -15,24 +15,16 @@ const Error = error{UefiError};
 var timer_event: uefi.Event = undefined;
 var timer_call: ?fn () void = null;
 
-inline fn getFromStack(rsp: isize, off: isize) u64 {
-    return @intToPtr([*]u64, @intCast(usize, rsp + off * @sizeOf(isize)))[0];
-}
-
 pub fn timer_call_thunk(event: uefi.Event, context: ?*const c_void) callconv(.C) void {
-    //    var rsp = asm volatile ("" : [ret] "={rsp}" (-> isize));
-    //    var myVar: u64 = 42;
-    //    earlyprintk("Event\r\n");
-    //    earlyprintf("{}\r\n", .{@import("../task.zig").sampleTask});
-    //    earlyprintf("rsp={x}\r\n", .{rsp});
-    //    var i: isize = 0;
-    //    while (i < 10) : (i += 1) {
-    //    earlyprintf("stack: {} - {x}\r\n", .{i, getFromStack(rsp, i)});
-    //    }
-    //    _ = myVar;
     if (timer_call) |func| {
         func();
     }
+}
+
+var kbd_event: uefi.Event = undefined;
+
+pub fn kbd_event_handler(event: uefi.Event, context: ?*const c_void) callconv(.C) void {
+    if
 }
 
 pub fn init() void {

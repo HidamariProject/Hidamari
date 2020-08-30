@@ -47,12 +47,20 @@ pub const Credentials = struct {
     key: u128 = 0xFFFF_EEEE_DDDD_BEEF_CCCC_AAAA_FFEE_DEAD, // Internal process key. Not yet used.
 };
 
+pub const Fd = struct {
+    pub const Num = u32;
+
+    num: Fd.Num,
+    node: *vfs.Node,
+};
+
 pub const Process = struct {
     pub const Id = task.Task.Id;
 
     pub const Arg = struct {
         name: []const u8 = "<unnamed>",
         credentials: Credentials = .{},
+        preopen: []const Fd = &[_]Fd{},
         runtime_arg: RuntimeArg,
 
         stack_size: usize = 32768,
@@ -64,10 +72,12 @@ pub const Process = struct {
     allocator: *std.mem.Allocator = undefined,
 
     name: []const u8 = "<unnamed>",
+    argc: usize = 1,
+    argv: []const u8 = "<unnamed>\x00",
     credentials: Credentials = .{},
     runtime: Runtime = undefined,
 
-    openedNodes: std.AutoHashMap(u32, *vfs.Node) = undefined,
+    open_nodes: std.AutoHashMap(Fd.Num, *Fd) = undefined,
     exit_code: ?u32 = undefined,
 
     internal_task: ?*task.Task = null,
@@ -87,15 +97,24 @@ pub const Process = struct {
         proc.allocator = &proc.arena_allocator.allocator;
 
         proc.name = try proc.allocator.dupe(u8, arg.name);
+        errdefer proc.allocator.free(proc.name);
+
         proc.credentials = arg.credentials;
 
         proc.runtime = switch (arg.runtime_arg) {
-            .wasm => .{ .wasm = try wasm_rt.Runtime.init(proc, arg.runtime_arg.wasm) },
+           .wasm => .{ .wasm = try wasm_rt.Runtime.init(proc, arg.runtime_arg.wasm) },
             else => {
                 return Error.NotImplemented;
             },
         };
         errdefer proc.runtime.deinit();
+
+        proc.open_nodes = @TypeOf(proc.open_nodes).init(proc.allocator);
+        for (arg.preopen) |preopen| {
+            var preopen_alloced = try proc.allocator.create(Fd);
+            preopen_alloced.* = preopen;
+            try proc.open_nodes.putNoClobber(preopen.num, preopen_alloced);
+        }
 
         return proc;
     }
@@ -109,6 +128,7 @@ pub const Process = struct {
     pub fn deinit(self: *Process) void {
         self.runtime.deinit();
         self.arena_allocator.deinit();
+        self.host.allocator.destroy(self);
     }
 
     pub fn deinitTrampoline(self_task: *task.Task) void {
