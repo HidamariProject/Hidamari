@@ -52,6 +52,7 @@ pub const Fd = struct {
 
     num: Fd.Num,
     node: *vfs.Node,
+    preopen: bool = false,
 };
 
 pub const Process = struct {
@@ -60,7 +61,7 @@ pub const Process = struct {
     pub const Arg = struct {
         name: []const u8 = "<unnamed>",
         credentials: Credentials = .{},
-        preopen: []const Fd = &[_]Fd{},
+        fds: []const Fd = &[_]Fd{},
         runtime_arg: RuntimeArg,
 
         stack_size: usize = 32768,
@@ -110,10 +111,13 @@ pub const Process = struct {
         errdefer proc.runtime.deinit();
 
         proc.open_nodes = @TypeOf(proc.open_nodes).init(proc.allocator);
-        for (arg.preopen) |preopen| {
-            var preopen_alloced = try proc.allocator.create(Fd);
-            preopen_alloced.* = preopen;
-            try proc.open_nodes.putNoClobber(preopen.num, preopen_alloced);
+        for (arg.fds) |fd| {
+            var fd_alloced = try proc.allocator.create(Fd);
+            fd_alloced.* = fd;
+            try proc.open_nodes.putNoClobber(fd.num, fd_alloced);
+            errdefer proc.allocator.destroy(fd_alloced);
+            try fd_alloced.node.open();
+            errdefer fd_alloced.node.close();
         }
 
         return proc;

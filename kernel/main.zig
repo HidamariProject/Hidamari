@@ -91,7 +91,23 @@ pub fn main() void {
 
     platform.earlyprintf("Size of /bin/init in bytes: {}.\r\n", .{init_data.len});
 
-    _ = prochost.createProcess(.{ .parent_pid = task.Task.KernelParentId, .runtime_arg = .{ .wasm = .{ .wasm_image = init_data } } }) catch @panic("can't create init process!");
+    var console_node = platform.openConsole();
+    _ = console_node.write(0, "Initialized /dev/console...\r\n") catch unreachable;
+
+    var init_proc_options = process.Process.Arg{
+        .parent_pid = task.Task.KernelParentId,
+        .fds = &[_]process.Fd{
+            .{ .num = 0, .node = &console_node },
+            .{ .num = 1, .node = &console_node },
+            .{ .num = 2, .node = &console_node },
+            .{ .num = 3, .node = rootfs, .preopen = true },
+        },
+        .runtime_arg = .{ .wasm = .{
+            .wasm_image = init_data,
+        } },
+    };
+
+    _ = prochost.createProcess(init_proc_options) catch @panic("can't create init process!");
 
     while (!terminated) {
         prochost.scheduler.loopOnce();

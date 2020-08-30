@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const vfs = @import("../vfs.zig");
 const uefi = std.os.uefi;
 const time = std.time;
 
@@ -8,6 +9,8 @@ const earlyprintf = @import("../platform.zig").earlyprintf;
 pub const klibc = @import("../klibc.zig");
 pub const debugMalloc = false;
 
+const console = @import("uefi/console.zig");
+
 var exitedBootServices = false;
 
 const Error = error{UefiError};
@@ -15,16 +18,11 @@ const Error = error{UefiError};
 var timer_event: uefi.Event = undefined;
 var timer_call: ?fn () void = null;
 
-pub fn timer_call_thunk(event: uefi.Event, context: ?*const c_void) callconv(.C) void {
+pub fn timerCallThunk(event: uefi.Event, context: ?*const c_void) callconv(.C) void {
+    console.keyboardHandler();
     if (timer_call) |func| {
         func();
     }
-}
-
-var kbd_event: uefi.Event = undefined;
-
-pub fn kbd_event_handler(event: uefi.Event, context: ?*const c_void) callconv(.C) void {
-    if
 }
 
 pub fn init() void {
@@ -32,7 +30,7 @@ pub fn init() void {
     const con_out = uefi.system_table.con_out.?;
     _ = uefi.system_table.boot_services.?.setWatchdogTimer(0, 0, 0, null);
     _ = con_out.reset(false);
-    _ = uefi.system_table.boot_services.?.createEvent(uefi.tables.BootServices.event_timer | uefi.tables.BootServices.event_notify_signal, uefi.tables.BootServices.tpl_notify, timer_call_thunk, null, &timer_event);
+    _ = uefi.system_table.boot_services.?.createEvent(uefi.tables.BootServices.event_timer | uefi.tables.BootServices.event_notify_signal, uefi.tables.BootServices.tpl_notify, timerCallThunk, null, &timer_event);
     _ = uefi.system_table.boot_services.?.setTimer(timer_event, uefi.tables.TimerDelay.TimerPeriodic, 1000);
 }
 
@@ -72,6 +70,10 @@ pub fn earlyprintk(str: []const u8) void {
     for (str) |c| {
         _ = con_out.outputString(&[_:0]u16{ c, 0 });
     }
+}
+
+pub fn openConsole() vfs.Node {
+    return console.ConsoleNode.init();
 }
 
 pub fn setTimer(cb: @TypeOf(timer_call)) void {

@@ -276,6 +276,7 @@ pub const ZeroNode = struct {
         return buffer.len;
     }
 };
+
 /// Read-only node that serves a fixed number of bytes
 // TODO: better name?
 pub const ReadOnlyNode = struct {

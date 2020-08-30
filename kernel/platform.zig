@@ -14,6 +14,7 @@ pub const getTimeNano = impl.getTimeNano;
 pub const getTime = impl.getTime;
 pub const halt = impl.halt;
 pub const setTimer = impl.setTimer;
+pub const openConsole = impl.openConsole;
 const late = impl.late;
 
 pub var internal_malloc = impl.malloc;
