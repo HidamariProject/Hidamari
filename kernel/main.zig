@@ -78,6 +78,8 @@ pub fn main() void {
     // Setup process host
     prochost = process.ProcessHost.init(allocator) catch unreachable;
 
+    task.tryme();
+
     platform.setTimer(timer_tick);
 
     // TODO: spawn kernel thread

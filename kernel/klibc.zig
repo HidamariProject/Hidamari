@@ -11,6 +11,10 @@ export fn __chkstk() callconv(.C) void {}
 
 // Actually useful stuff: stdlib
 
+export fn exit(code: c_int) callconv(.C) void {
+    @panic("exit() function called from C code");
+}
+
 export fn abort() callconv(.C) void {
     @panic("abort() function called from C code");
 }

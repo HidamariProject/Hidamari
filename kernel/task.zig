@@ -5,6 +5,10 @@ const std = @import("std");
 const platform = @import("platform.zig");
 const util = @import("util.zig");
 
+const c = @cImport({
+    @cInclude("ucontext.h");
+});
+
 const Cookie = util.Cookie;
 
 pub const Error = error{NoSuchTask};
@@ -125,3 +129,25 @@ platform.earlyprintk("lap(B)\n");
         self.current_tid = null;
     }
 };
+
+var ctx: c.ucontext_t = undefined;
+var orig: c.ucontext_t = undefined;
+var stk: [4096]u8 = undefined;
+
+pub fn tryme() callconv(.C) void {
+    _ = c.t_getcontext(&ctx);
+_ = c.t_swapcontext(&orig, &ctx);
+    // haha undefined behavior
+    ctx.uc_stack.ss_sp = &stk;
+    ctx.uc_stack.ss_size = @sizeOf(@TypeOf(stk));
+    ctx.uc_link = &orig;
+    _ = c.__makecontext(&ctx, @ptrCast(fn () callconv(.C) void, tryentry), 0, @intCast(u32, 65535));
+    platform.earlyprintf("{}\n", .{ctx.uc_mcontext.gregs[0..16]});
+    _ = c.t_swapcontext(&orig, &ctx);
+}
+
+fn tryentry() callconv(.C) void {
+    platform.earlyprintf("I got: {x}\n", .{83});
+    @panic("that's all folks!");
+//    _ = c.swapcontext(&ctx, &orig);
+}
