@@ -81,3 +81,12 @@ pub const errno = enum {
 pub inline fn errnoInt(err: errno) u32 {
     return @enumToInt(err);
 }
+
+pub inline fn errorToNo(err: anyerror) errno {
+    return switch(err) {
+        error.Success, error.None => .ESUCCESS,
+        error.BadFd => .EBADF,
+        error.ReadFailed, error.WriteFailed => .EIO,
+        else => .ENOSYS,
+    };
+}

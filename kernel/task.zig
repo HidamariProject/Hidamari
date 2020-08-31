@@ -37,8 +37,12 @@ pub const Task = struct {
     }
 
     pub fn yield(self: *Task) void {
+        platform.earlyprintk("gonna yield\n");
+        platform.earlyprintk("actually gonna yield\n");
         self.frame_ptr = @frame();
         suspend;
+while (true) {}
+        platform.earlyprintk("back\r\n");
     }
 
     pub fn kill(self: *Task) void {
@@ -93,11 +97,15 @@ pub const Scheduler = struct {
         for (self.tasks.items()) |entry| {
             var task = entry.value;
             self.current_tid = entry.key;
-
-            if (!task.killed and task.started)
-                resume task.frame_ptr
-            else if (!task.killed)
+platform.earlyprintf("{x} DO\n", .{@ptrCast(*c_void, task)});
+platform.earlyprintk("lap\n");
+platform.earlyprintf("{} DO\n", .{.{ .started = task.started, .killed = task.killed}});
+            if (!task.killed and task.started) {
+//                resume task.frame_ptr;
+            } else if (!task.killed) {
                 _ = @asyncCall(task.frame_data, {}, task.entry_point, .{task});
+            }
+platform.earlyprintk("lap(B)\n");
             task.started = true;
 
             if (task.parent_tid != null and task.parent_tid.? != Task.KernelParentId and self.tasks.get(task.parent_tid.?) == null)

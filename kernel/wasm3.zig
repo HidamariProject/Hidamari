@@ -14,6 +14,7 @@ pub const Error = error{
     CantCreateEnv,
     CantCreateRuntime,
     NoMoreModules,
+    InvalidAlignment,
     InvalidType,
     InvalidNumArgs,
     Exit,
@@ -151,7 +152,7 @@ pub const ZigFunctionEx = struct {
         comptime var sig: [atype.Struct.fields.len * 2 + 2 + 1 + 1]u8 = undefined;
         var anonFn = struct {
             pub fn anon(ctx: ZigFunctionCtx) anyerror!void {
-                const args = ctx.args(fninfo.args[1].arg_type.?);
+                const args = try ctx.args(fninfo.args[1].arg_type.?);
                 const me = @ptrCast(*ZigFunctionEx, @alignCast(@alignOf(ZigFunctionEx), ctx.trampoline));
                 var res = @call(.{}, @ptrCast(rawftype, me._orig), .{ ctx, args }) catch |err| return err;
                 if (@typeInfo(fninfo.return_type.?).ErrorUnion.payload == void) return else ctx.ret(res);
@@ -217,7 +218,7 @@ pub const ZigFunctionCtx = struct {
     trampoline: ?*c_void,
     cookie: Cookie = null,
 
-    pub inline fn args(self: ZigFunctionCtx, comptime T: type) T {
+    pub inline fn args(self: ZigFunctionCtx, comptime T: type) !T {
         var out: T = undefined;
         comptime var tinfo = @typeInfo(T);
         comptime var i: usize = 0;
@@ -231,7 +232,7 @@ pub const ZigFunctionCtx = struct {
                     switch (@typeInfo(field.field_type)) {
                         .Pointer => |ptr| {
                             switch(ptr.size) {
-                                .One, .Many => { @field(out, field.name) = @ptrCast(field.field_type, @alignCast(@alignOf(field.field_type), &self.memory[self.sp.get(usize, i)])); i += 1; },
+                                .One, .Many => { @field(out, field.name) = @ptrCast(field.field_type, @alignCast(ptr.alignment, &self.memory[self.sp.get(usize, i)])); i += 1; },
                                 .Slice => {
                                     var rawptr = @ptrCast([*]align(1) ptr.child, @alignCast(1, &self.memory[self.sp.get(usize, i)]));
                                     var len = self.sp.get(usize, i + 1);

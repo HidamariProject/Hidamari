@@ -22,10 +22,10 @@ pub inline fn nop() void {}
 pub fn panic(message: []const u8, stack_trace: ?*builtin.StackTrace) noreturn {
     @setCold(true);
     if (platform.early()) {
-        platform.earlyprintk("KERNEL PANIC! Early system initialization failure: ");
+        platform.earlyprintk("\nKERNEL PANIC! Early system initialization failure: ");
         platform.earlyprintk(message);
         platform.earlyprintk("\r\n");
-        platform.earlyprintf("!!! -> 0x{x}\r\n", .{@returnAddress()});
+        platform.earlyprintf("(!) -> 0x{x}\r\n", .{@returnAddress()});
         if (@errorReturnTrace()) |trace| {
             for (trace.instruction_address[0..trace.index]) |func, i| {
                 platform.earlyprintf("{} -> 0x{x}\r\n", .{ i, func });

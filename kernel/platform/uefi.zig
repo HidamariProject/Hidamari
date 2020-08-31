@@ -28,8 +28,10 @@ pub fn timerCallThunk(event: uefi.Event, context: ?*const c_void) callconv(.C) v
 pub fn init() void {
     klibc.notifyInitialization();
     const con_out = uefi.system_table.con_out.?;
+    const con_in = uefi.system_table.con_in.?;
     _ = uefi.system_table.boot_services.?.setWatchdogTimer(0, 0, 0, null);
     _ = con_out.reset(false);
+    _ = con_in._reset(con_in, false);
     _ = uefi.system_table.boot_services.?.createEvent(uefi.tables.BootServices.event_timer | uefi.tables.BootServices.event_notify_signal, uefi.tables.BootServices.tpl_notify, timerCallThunk, null, &timer_event);
     _ = uefi.system_table.boot_services.?.setTimer(timer_event, uefi.tables.TimerDelay.TimerPeriodic, 1000);
 }
@@ -68,6 +70,7 @@ pub fn free(ptr: ?[*]align(8) u8) void {
 pub fn earlyprintk(str: []const u8) void {
     const con_out = uefi.system_table.con_out.?;
     for (str) |c| {
+        if (c == '\n') _ = con_out.outputString(&[_:0]u16{ '\r', 0 });
         _ = con_out.outputString(&[_:0]u16{ c, 0 });
     }
 }

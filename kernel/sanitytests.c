@@ -1,4 +1,5 @@
 // Platform sanity tests
+// These tests exist because very old versions of QEMU actually fail to boot the OS.
 
 extern void __earlyprintk(const char*);
 extern void abort();

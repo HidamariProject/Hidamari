@@ -7,7 +7,7 @@ const RefCount = util.RefCount;
 
 pub const max_name_len = 256;
 
-pub const Error = error{ NotImplemented, NotDirectory, NotFile, NoSuchFile, FileExists, NotEmpty, ReadFailed, WriteFailed };
+pub const Error = error{ NotImplemented, NotDirectory, NotFile, NoSuchFile, FileExists, NotEmpty, ReadFailed, WriteFailed, Again };
 
 /// Node represents a FileSystem VNode
 /// There should only be ONE VNode in memory per file at a time!

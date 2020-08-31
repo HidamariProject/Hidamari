@@ -11,13 +11,7 @@ var console_fifo = std.fifo.LinearFifo(u8, .Slice).init(console_scratch[0..]);
 // TODO: pass scancodes
 
 pub fn keyboardHandler() void {
-    const input_events = [_]uefi.Event{
-        uefi.system_table.con_in.?.wait_for_key,
-    };
-    var index: usize = 0;
-    if (uefi.system_table.boot_services.?.waitForEvent(input_events.len, &input_events, &index) != uefi.Status.Success) return;
-    if (index != 0) return;
-
+    if (uefi.system_table.boot_services.?.checkEvent(uefi.system_table.con_in.?.wait_for_key) != uefi.Status.Success) return;
     var key: uefi.protocols.InputKey = undefined;
     if (uefi.system_table.con_in.?.readKeyStroke(&key) != uefi.Status.Success) return;
 

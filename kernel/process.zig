@@ -49,10 +49,39 @@ pub const Credentials = struct {
 
 pub const Fd = struct {
     pub const Num = u32;
+    pub const Flags = struct {
+        sync: bool = false,
+        nonblock: bool = false,
+    };
 
     num: Fd.Num,
     node: *vfs.Node,
     preopen: bool = false,
+    flags: Fd.Flags = .{},
+
+    seek_offset: u64 = 0,
+
+    proc: ?*Process = null,
+
+    pub fn write(self: *Fd, buffer: []const u8) !usize {
+        var written = try self.node.write(self.seek_offset, buffer);
+        self.seek_offset += @truncate(u64, written);
+        return written;
+    }
+
+    pub fn read(self: *Fd, buffer: []u8) !usize {
+        var amount: usize = 0;
+        while (true) {
+            self.proc.?.task().yield();
+            amount = self.node.read(self.seek_offset, buffer) catch |err| switch(err) {
+                vfs.Error.Again => { if (!self.flags.nonblock) continue else return err; },
+                else => { return err; }
+            };
+            break;
+        }
+        self.seek_offset += @truncate(u64, amount);
+        return amount;
+    }
 };
 
 pub const Process = struct {
@@ -114,6 +143,7 @@ pub const Process = struct {
         for (arg.fds) |fd| {
             var fd_alloced = try proc.allocator.create(Fd);
             fd_alloced.* = fd;
+            fd_alloced.proc = proc;
             try proc.open_nodes.putNoClobber(fd.num, fd_alloced);
             errdefer proc.allocator.destroy(fd_alloced);
             try fd_alloced.node.open();
