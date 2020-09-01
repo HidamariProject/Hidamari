@@ -17,36 +17,52 @@ fn nop(task: *Task) void {}
 
 pub const Task = struct {
     pub const Id = i24;
-    pub const EntryPoint = fn (task: *Task) callconv(.Async) void;
-    pub const frame_data_align = @alignOf(@Frame(nop));
+    pub const EntryPoint = fn (task: *Task) void;
+    pub const stack_data_align = @alignOf(usize);
 
     pub const KernelParentId: Task.Id = -1;
 
-    parent_tid: ?Task.Id,
+    scheduler: *Scheduler,
     tid: Task.Id,
+    parent_tid: ?Task.Id,
     cookie_meta: usize = undefined,
     cookie: Cookie,
 
-    frame_data: []align(Task.frame_data_align) u8,
-    frame_ptr: anyframe = undefined,
+    stack_data: []align(Task.stack_data_align) u8,
+    context: c.ucontext_t = undefined,
 
     started: bool = false,
     killed: bool = false,
 
     entry_point: Task.EntryPoint,
-    deinit: ?fn (task: *Task) void = null,
+    on_deinit: ?fn (task: *Task) void = null,
 
-    pub fn init(tid: Task.Id, parent_tid: ?Task.Id, entry_point: Task.EntryPoint, frame_data: []align(Task.frame_data_align) u8, cookie: Cookie) Task {
-        return Task{ .tid = tid, .parent_tid = parent_tid, .entry_point = entry_point, .frame_data = frame_data, .cookie = cookie };
+    pub fn init(scheduler: *Scheduler, tid: Task.Id, parent_tid: ?Task.Id, entry_point: Task.EntryPoint, stack_size: usize, cookie: Cookie) !*Task {
+        var allocator = scheduler.allocator;
+
+        var ret = try allocator.create(Task);
+        errdefer allocator.destroy(ret);
+
+        var stack_data = try allocator.allocAdvanced(u8, Task.stack_data_align, stack_size, .at_least);
+        errdefer allocator.free(stack_data);
+
+        ret.* = Task{ .scheduler = scheduler, .tid = tid, .parent_tid = parent_tid, .entry_point = entry_point, .stack_data = stack_data, .cookie = cookie };
+        ret.context.uc_stack.ss_sp = @ptrCast(*c_void, stack_data);
+        ret.context.uc_stack.ss_size = stack_size;
+        c.t_makecontext(&ret.context, Task.entryPoint, @ptrToInt(ret));
+        return ret;
+    }
+
+    fn entryPoint(self_ptr: usize) callconv(.C) void {
+        var self = @intToPtr(*Task, self_ptr);
+        self.entry_point(self);
+        self.yield();
     }
 
     pub fn yield(self: *Task) void {
-        platform.earlyprintk("gonna yield\n");
-        platform.earlyprintk("actually gonna yield\n");
-        self.frame_ptr = @frame();
-        suspend;
-while (true) {}
-        platform.earlyprintk("back\r\n");
+        self.started = false;
+        _ = c.t_getcontext(&self.context);
+        if (!self.started) _ = c.t_setcontext(&self.scheduler.context);
     }
 
     pub fn kill(self: *Task) void {
@@ -57,6 +73,11 @@ while (true) {}
         if (!peek and self.killed) self.parent_tid = null;
         return self.killed;
     }
+
+    pub fn deinit(self: *Task) void {
+        if (self.on_deinit) |on_deinit| on_deinit(self);
+        self.scheduler.allocator.destroy(self);
+    }
 };
 
 pub const Scheduler = struct {
@@ -66,6 +87,7 @@ pub const Scheduler = struct {
     tasks: Scheduler.TaskList,
     next_spawn_tid: Task.Id,
 
+    context: c.ucontext_t = undefined,
     current_tid: ?Task.Id = undefined,
 
     pub fn init(allocator: *std.mem.Allocator) !Scheduler {
@@ -85,13 +107,8 @@ pub const Scheduler = struct {
             if (self.tasks.get(new_index) == null) break;
         }
 
-        var frame_data = try self.allocator.allocAdvanced(u8, Task.frame_data_align, stack_size, .at_least);
-        errdefer self.allocator.free(frame_data);
-
-        var task = try self.allocator.create(Task);
-        errdefer self.allocator.destroy(task);
-
-        task.* = Task.init(new_index, parent_tid, entry_point, frame_data, cookie);
+        var task = try Task.init(self, new_index, parent_tid, entry_point, stack_size, cookie);
+        errdefer task.deinit();
 
         _ = try self.tasks.put(new_index, task);
         return task;
@@ -101,16 +118,12 @@ pub const Scheduler = struct {
         for (self.tasks.items()) |entry| {
             var task = entry.value;
             self.current_tid = entry.key;
-platform.earlyprintf("{x} DO\n", .{@ptrCast(*c_void, task)});
-platform.earlyprintk("lap\n");
-platform.earlyprintf("{} DO\n", .{.{ .started = task.started, .killed = task.killed}});
-            if (!task.killed and task.started) {
-//                resume task.frame_ptr;
-            } else if (!task.killed) {
-                _ = @asyncCall(task.frame_data, {}, task.entry_point, .{task});
-            }
-platform.earlyprintk("lap(B)\n");
+
+//            platform.earlyprintf("done={}\n",.{task.killed});
             task.started = true;
+            _ = c.t_getcontext(&self.context);
+            if (!task.killed and task.started)
+                _ = c.t_setcontext(&task.context);
 
             if (task.parent_tid != null and task.parent_tid.? != Task.KernelParentId and self.tasks.get(task.parent_tid.?) == null)
                 task.parent_tid = null;
@@ -118,36 +131,10 @@ platform.earlyprintk("lap(B)\n");
             if (task.killed and task.parent_tid == null) {
                 _ = self.tasks.remove(entry.key);
 
-                if (task.deinit) |deinit_fn| {
-                    deinit_fn(task);
-                }
-
-                self.allocator.free(task.frame_data);
-                self.allocator.destroy(task);
+                task.deinit();
             }
         }
         self.current_tid = null;
     }
 };
 
-var ctx: c.ucontext_t = undefined;
-var orig: c.ucontext_t = undefined;
-var stk: [4096]u8 = undefined;
-
-pub fn tryme() callconv(.C) void {
-    _ = c.t_getcontext(&ctx);
-_ = c.t_swapcontext(&orig, &ctx);
-    // haha undefined behavior
-    ctx.uc_stack.ss_sp = &stk;
-    ctx.uc_stack.ss_size = @sizeOf(@TypeOf(stk));
-    ctx.uc_link = &orig;
-    _ = c.__makecontext(&ctx, @ptrCast(fn () callconv(.C) void, tryentry), 0, @intCast(u32, 65535));
-    platform.earlyprintf("{}\n", .{ctx.uc_mcontext.gregs[0..16]});
-    _ = c.t_swapcontext(&orig, &ctx);
-}
-
-fn tryentry() callconv(.C) void {
-    platform.earlyprintf("I got: {x}\n", .{83});
-    @panic("that's all folks!");
-//    _ = c.swapcontext(&ctx, &orig);
-}

@@ -45,7 +45,7 @@ enum { REG_OLDMASK = 21 };
 enum { REG_CR2 = 22 };
 #define REG_CR2 REG_CR2
 
-typedef long long greg_t, gregset_t[23];
+typedef uint64_t greg_t, gregset_t[23];
 typedef struct _fpstate {
 	uint16_t cwd, swd, ftw, fop;
 	uint64_t rip, rdp;

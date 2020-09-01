@@ -40,6 +40,9 @@ pub const ConsoleNode = struct {
     }
 
     pub fn read(self: *Node, offset: u64, buffer: []u8) !usize {
-        return console_fifo.read(buffer);
+        var n = console_fifo.read(buffer);
+        for (buffer[0..n]) |c, i| { if (c == '\r') buffer[i] = '\n'; }
+        uefi_platform.earlyprintk(buffer[0..n]);
+        return if (n == 0) vfs.Error.Again else n;
     }
 };

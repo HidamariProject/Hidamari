@@ -41,21 +41,25 @@ pub const Preview1 = struct {
     }
 
     pub fn fd_write(ctx: w3.ZigFunctionCtx, args: struct { fd: u32, iovecs: []align(1) Self.IoVec, written: w3.u32_ptr }) !u32 {
-platform.earlyprintk("yield me\r\n");
         myProc(ctx).task().yield();
         args.written.* = 0;
-        for (args.iovecs) |iovec| {
-            args.written.* += @truncate(u32, syscall.write(myProc(ctx), args.fd, ctx.memory[iovec.bufptr..iovec.bufptr + iovec.buflen]) catch |err| return errnoInt(errorToNo(err)));
+        if (myProc(ctx).open_nodes.get(@truncate(process.Fd.Num, args.fd))) |fd| {
+            for (args.iovecs) |iovec| {
+                args.written.* += @truncate(u32, fd.write(ctx.memory[iovec.bufptr..iovec.bufptr + iovec.buflen]) catch |err| return errnoInt(errorToNo(err)));
+            }
+            return errnoInt(.ESUCCESS);
         }
-        return errnoInt(.ESUCCESS);
+        return errnoInt(.EBADF);
     }
 
     pub fn fd_read(ctx: w3.ZigFunctionCtx, args: struct { fd: u32, iovecs: []align(1) Self.IoVec, amount: w3.u32_ptr }) !u32 {
+        myProc(ctx).task().yield();
         args.amount.* = 0;
         if (myProc(ctx).open_nodes.get(@truncate(process.Fd.Num, args.fd))) |fd| {
             for (args.iovecs) |iovec| {
                 args.amount.* += @truncate(u32, fd.read(ctx.memory[iovec.bufptr..iovec.bufptr + iovec.buflen]) catch |err| return errnoInt(errorToNo(err)));
             }
+            return errnoInt(.ESUCCESS);
         }
         return errnoInt(.EBADF);
     }

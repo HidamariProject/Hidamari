@@ -19,6 +19,7 @@ pub const Error = error{
     InvalidNumArgs,
     Exit,
     Abort,
+    OutOfBounds,
 };
 
 pub const WasmPtr = extern struct { offset: u32 };
@@ -49,6 +50,7 @@ fn initErrorConversionTable() void {
    e(c.m3Err_argumentCountMismatch, Error.InvalidNumArgs);
    e(c.m3Err_trapExit, Error.Exit);
    e(c.m3Err_trapAbort, Error.Abort);
+   e(c.m3Err_trapOutOfBoundsMemoryAccess, Error.OutOfBounds);
    errorConversionTable = errorConversionTable_back[0..errorConversionTable_len];
 }
 
@@ -79,6 +81,10 @@ fn errorToM3Result(err: ?anyerror) c.M3Result {
     return c.m3Err_trapAbort;
 }
 
+inline fn boundsCheck(obj: anytype, off: usize, len: usize) !void {
+    if (obj.len <= off or obj.len <= (off + len)) return Error.OutOfBounds;
+}
+
 pub const RuntimeStack = struct {
     stack: [*]u64,
 
@@ -97,7 +103,7 @@ pub const RuntimeStack = struct {
     pub inline fn get(self: RuntimeStack, comptime T: type, index: usize) T {
         return switch (T) {
             u64 => self.stack[index],
-            usize => @truncate(usize, self.stack[index]),
+            usize => @truncate(usize, self.stack[index] & 0xFFFFFFFF),
             i64 => @intCast(i64, self.stack[index]),
             u32 => @truncate(u32, self.stack[index] & 0xFFFFFFFF),
             i32 => @truncate(i32, self.stack[index] & 0xFFFFFFFF),
@@ -214,7 +220,7 @@ pub const ZigFunctionEx = struct {
 pub const ZigFunctionCtx = struct {
     runtime: Runtime,
     sp: RuntimeStack,
-    memory: [*]u8,
+    memory: []u8,
     trampoline: ?*c_void,
     cookie: Cookie = null,
 
@@ -232,8 +238,9 @@ pub const ZigFunctionCtx = struct {
                     switch (@typeInfo(field.field_type)) {
                         .Pointer => |ptr| {
                             switch(ptr.size) {
-                                .One, .Many => { @field(out, field.name) = @ptrCast(field.field_type, @alignCast(ptr.alignment, &self.memory[self.sp.get(usize, i)])); i += 1; },
+                                .One, .Many => { try boundsCheck(self.memory, self.sp.get(usize, i), 0); @field(out, field.name) = @ptrCast(field.field_type, @alignCast(ptr.alignment, &self.memory[self.sp.get(usize, i)])); i += 1; },
                                 .Slice => {
+                                    try boundsCheck(self.memory, self.sp.get(usize, i), self.sp.get(usize, i + 1));
                                     var rawptr = @ptrCast([*]align(1) ptr.child, @alignCast(1, &self.memory[self.sp.get(usize, i)]));
                                     var len = self.sp.get(usize, i + 1);
                                     @field(out, field.name) = rawptr[0..len];
@@ -304,7 +311,8 @@ pub const Module = struct {
     fn linkZigFunctionHelper(runtime: c.IM3Runtime, sp: [*c]u64, mem: ?*c_void, cookie: ?*c_void) callconv(.C) ?*c_void {
         var f: ZigFunction = @intToPtr(ZigFunction, @ptrToInt(cookie));
         var bogusRt = Runtime{ .runtime = runtime, .environ = undefined };
-        f(ZigFunctionCtx{ .runtime = bogusRt, .sp = RuntimeStack.init(sp), .memory = @ptrCast([*]u8, mem) }) catch |err| return @intToPtr(*c_void, @ptrToInt(errorToM3Result(err)));
+        var mem_slice = @ptrCast([*]u8, mem)[0..@intCast(usize,runtime.*.memory.numPages)*65536];
+        f(ZigFunctionCtx{ .runtime = bogusRt, .sp = RuntimeStack.init(sp), .memory = mem_slice }) catch |err| return @intToPtr(*c_void, @ptrToInt(errorToM3Result(err)));
         return null;
     }
 
@@ -315,7 +323,8 @@ pub const Module = struct {
     fn linkZigFunctionHelperEx(runtime: c.IM3Runtime, sp: [*c]u64, mem: ?*c_void, cookie: ?*c_void) callconv(.C) ?*c_void {
         var f: *ZigFunctionEx = @intToPtr(*ZigFunctionEx, @ptrToInt(cookie));
         var bogusRt = Runtime{ .runtime = runtime, .environ = undefined };
-        f.call(ZigFunctionCtx{ .runtime = bogusRt, .sp = RuntimeStack.init(sp), .memory = @ptrCast([*]u8, mem), .cookie = f.cookie, .trampoline = f }) catch |err| return @intToPtr(*c_void, @ptrToInt(errorToM3Result(err)));
+        var mem_slice = @ptrCast([*]u8, mem)[0..@intCast(usize,runtime.*.memory.numPages)*65536];
+        f.call(ZigFunctionCtx{ .runtime = bogusRt, .sp = RuntimeStack.init(sp), .memory = mem_slice, .cookie = f.cookie, .trampoline = f }) catch |err| return @intToPtr(*c_void, @ptrToInt(errorToM3Result(err)));
         return null;
     }
 

@@ -93,7 +93,7 @@ pub const Process = struct {
         fds: []const Fd = &[_]Fd{},
         runtime_arg: RuntimeArg,
 
-        stack_size: usize = 32768,
+        stack_size: usize = 1262144,
         parent_pid: ?Process.Id = null,
     };
 
@@ -182,7 +182,7 @@ pub const ProcessHost = struct {
         var proc = try Process.init(self, options);
         var ret = try self.scheduler.spawn(options.parent_pid, Process.entryPoint, util.asCookie(proc), options.stack_size);
         proc.internal_task = ret;
-        ret.deinit = Process.deinitTrampoline;
+        ret.on_deinit = Process.deinitTrampoline;
 
         return proc;
     }
