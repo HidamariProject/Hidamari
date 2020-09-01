@@ -104,9 +104,11 @@ pub fn main() void {
             .{ .num = 2, .node = &console_node },
             .{ .num = 3, .node = rootfs, .preopen = true },
         },
-        .runtime_arg = .{ .wasm = .{
-            .wasm_image = init_data,
-        } },
+        .runtime_arg = .{
+            .wasm = .{
+                .wasm_image = init_data,
+            },
+        },
     };
 
     _ = prochost.createProcess(init_proc_options) catch @panic("can't create init process!");

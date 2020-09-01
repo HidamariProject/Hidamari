@@ -119,7 +119,7 @@ pub const Scheduler = struct {
             var task = entry.value;
             self.current_tid = entry.key;
 
-//            platform.earlyprintf("done={}\n",.{task.killed});
+            //            platform.earlyprintf("done={}\n",.{task.killed});
             task.started = true;
             _ = c.t_getcontext(&self.context);
             if (!task.killed and task.started)
@@ -137,4 +137,3 @@ pub const Scheduler = struct {
         self.current_tid = null;
     }
 };
-

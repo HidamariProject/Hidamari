@@ -51,9 +51,13 @@ pub const Runtime = struct {
 
     pub fn start(self: *Runtime) void {
         _ = self.entry_point.callVoid(void) catch |err| {
-            switch(err) {
-                w3.Error.Exit => { return; },
-                else => { platform.earlyprintf("ERR: {}\r\n", .{@errorName(err)}); }
+            switch (err) {
+                w3.Error.Exit => {
+                    return;
+                },
+                else => {
+                    platform.earlyprintf("ERR: {}\r\n", .{@errorName(err)});
+                },
             }
         };
     }

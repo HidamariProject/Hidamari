@@ -26,7 +26,7 @@ pub const Debug = struct {
 };
 
 pub const Preview1 = struct {
-    pub const namespaces = [_][:0]const u8{"wasi_snapshot_preview1", "wasi_unstable"};
+    pub const namespaces = [_][:0]const u8{ "wasi_snapshot_preview1", "wasi_unstable" };
 
     const IoVec = packed struct {
         bufptr: u32,
@@ -45,7 +45,7 @@ pub const Preview1 = struct {
         args.written.* = 0;
         if (myProc(ctx).open_nodes.get(@truncate(process.Fd.Num, args.fd))) |fd| {
             for (args.iovecs) |iovec| {
-                args.written.* += @truncate(u32, fd.write(ctx.memory[iovec.bufptr..iovec.bufptr + iovec.buflen]) catch |err| return errnoInt(errorToNo(err)));
+                args.written.* += @truncate(u32, fd.write(ctx.memory[iovec.bufptr .. iovec.bufptr + iovec.buflen]) catch |err| return errnoInt(errorToNo(err)));
             }
             return errnoInt(.ESUCCESS);
         }
@@ -57,7 +57,7 @@ pub const Preview1 = struct {
         args.amount.* = 0;
         if (myProc(ctx).open_nodes.get(@truncate(process.Fd.Num, args.fd))) |fd| {
             for (args.iovecs) |iovec| {
-                args.amount.* += @truncate(u32, fd.read(ctx.memory[iovec.bufptr..iovec.bufptr + iovec.buflen]) catch |err| return errnoInt(errorToNo(err)));
+                args.amount.* += @truncate(u32, fd.read(ctx.memory[iovec.bufptr .. iovec.bufptr + iovec.buflen]) catch |err| return errnoInt(errorToNo(err)));
             }
             return errnoInt(.ESUCCESS);
         }

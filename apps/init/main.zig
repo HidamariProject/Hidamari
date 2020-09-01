@@ -10,11 +10,11 @@ pub fn main() !u8 {
     var buf: [100]u8 = undefined;
 
     while (true) {
-       if (try stdin.readUntilDelimiterOrEof(buf[0..], '\n')) |line| {
-          _ = try stdout.write("you said: ");
-          _ = try stdout.write(line);
-          _ = try stdout.write("\n");
-       }
+        if (try stdin.readUntilDelimiterOrEof(buf[0..], '\n')) |line| {
+            _ = try stdout.write("you said: ");
+            _ = try stdout.write(line);
+            _ = try stdout.write("\n");
+        }
     }
     return 42;
 }

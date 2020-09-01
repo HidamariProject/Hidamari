@@ -73,9 +73,13 @@ pub const Fd = struct {
         var amount: usize = 0;
         while (true) {
             self.proc.?.task().yield();
-            amount = self.node.read(self.seek_offset, buffer) catch |err| switch(err) {
-                vfs.Error.Again => { if (!self.flags.nonblock) continue else return err; },
-                else => { return err; }
+            amount = self.node.read(self.seek_offset, buffer) catch |err| switch (err) {
+                vfs.Error.Again => {
+                    if (!self.flags.nonblock) continue else return err;
+                },
+                else => {
+                    return err;
+                },
             };
             break;
         }
@@ -132,7 +136,7 @@ pub const Process = struct {
         proc.credentials = arg.credentials;
 
         proc.runtime = switch (arg.runtime_arg) {
-           .wasm => .{ .wasm = try wasm_rt.Runtime.init(proc, arg.runtime_arg.wasm) },
+            .wasm => .{ .wasm = try wasm_rt.Runtime.init(proc, arg.runtime_arg.wasm) },
             else => {
                 return Error.NotImplemented;
             },
