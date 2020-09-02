@@ -17,12 +17,15 @@ const Error = error{UefiError};
 
 var timer_event: uefi.Event = undefined;
 var timer_call: ?fn () void = null;
+var in_timer: bool = false;
 
 pub fn timerCallThunk(event: uefi.Event, context: ?*const c_void) callconv(.C) void {
+    if (@atomicRmw(bool, &in_timer, .Xchg, true, .SeqCst)) return;
     console.keyboardHandler();
     if (timer_call) |func| {
         func();
     }
+    _ = @atomicRmw(bool, &in_timer, .Xchg, false, .SeqCst);
 }
 
 pub fn init() void {
@@ -34,6 +37,8 @@ pub fn init() void {
     _ = con_in._reset(con_in, false);
     _ = uefi.system_table.boot_services.?.createEvent(uefi.tables.BootServices.event_timer | uefi.tables.BootServices.event_notify_signal, uefi.tables.BootServices.tpl_notify, timerCallThunk, null, &timer_event);
     _ = uefi.system_table.boot_services.?.setTimer(timer_event, uefi.tables.TimerDelay.TimerPeriodic, 1000);
+
+    console.init();
 }
 
 pub fn malloc(size: usize) ?[*]u8 {
@@ -77,6 +82,11 @@ pub fn earlyprintk(str: []const u8) void {
 
 pub fn openConsole() vfs.Node {
     return console.ConsoleNode.init();
+}
+
+pub fn beforeYield() void {
+    _ = @atomicRmw(bool, &in_timer, .Xchg, false, .SeqCst);
+    uefi.system_table.boot_services.?.restoreTpl(uefi.tables.BootServices.tpl_application);
 }
 
 pub fn setTimer(cb: @TypeOf(timer_call)) void {
@@ -143,3 +153,4 @@ pub fn halt() noreturn {
     };
     while (true) {}
 }
+

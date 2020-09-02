@@ -10,16 +10,17 @@ pub const impl = switch (builtin.os.tag) {
 
 pub const init = impl.init;
 pub const earlyprintk = impl.earlyprintk;
-pub const getTimeNano = impl.getTimeNano;
-pub const getTime = impl.getTime;
 pub const halt = impl.halt;
 pub const setTimer = impl.setTimer;
 pub const openConsole = impl.openConsole;
+pub const beforeYield = impl.beforeYield;
 const late = impl.late;
 
 pub var internal_malloc = impl.malloc;
 pub var internal_realloc = impl.realloc;
 pub var internal_free = impl.free;
+pub var getTimeNano = impl.getTimeNano;
+pub var getTime = impl.getTime;
 
 var earlyInit = true;
 
@@ -38,7 +39,7 @@ export fn free(ptr: ?[*]align(8) u8) callconv(.C) void {
 // Useful utilities
 
 pub fn earlyprintf(comptime format: []const u8, args: anytype) void {
-    var buf: [4096]u8 = undefined;
+    var buf: [1024]u8 = undefined;
     earlyprintk(std.fmt.bufPrint(buf[0..buf.len], format, args) catch unreachable);
 }
 

@@ -45,9 +45,9 @@ const NodeImpl = struct {
         var node_impl = try fs_impl.file_allocator.create(NodeImpl);
         errdefer fs_impl.file_allocator.destroy(node_impl);
 
-        if (typ == .Directory) {
+        if (typ == .directory) {
             node_impl.children = FileList.init(fs_impl.file_allocator);
-        } else if (typ == .File) {
+        } else if (typ == .file) {
             node_impl.data = try fs_impl.file_allocator.alloc(u8, 0);
         } else {
             unreachable;
@@ -274,7 +274,7 @@ const FsImpl = struct {
 
         var now = platform.getTimeNano();
 
-        var root_node = try NodeImpl.init(self, .Directory, .{ .flags = .{ .mount_point = true }, .create_time = now, .access_time = now, .modify_time = now });
+        var root_node = try NodeImpl.init(self, .directory, .{ .flags = .{ .mount_point = true }, .create_time = now, .access_time = now, .modify_time = now });
         return root_node;
     }
 };

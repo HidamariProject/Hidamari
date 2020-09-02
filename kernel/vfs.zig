@@ -6,8 +6,9 @@ const Cookie = util.Cookie;
 const RefCount = util.RefCount;
 
 pub const max_name_len = 256;
+pub const max_path_len = 4096;
 
-pub const Error = error{ NotImplemented, NotDirectory, NotFile, NoSuchFile, FileExists, NotEmpty, ReadFailed, WriteFailed, Again };
+pub const Error = error{ NotImplemented, NotDirectory, NotFile, NoSuchFile, FileExists, NotEmpty, ReadFailed, WriteFailed, Again, PathTooLong };
 
 /// Node represents a FileSystem VNode
 /// There should only be ONE VNode in memory per file at a time!
@@ -50,18 +51,34 @@ pub const Node = struct {
     };
 
     pub const Type = enum {
-        None,
-        File,
-        Directory,
-        BlockDevice,
-        CharacterDevice,
-        SymLink,
-        Socket,
-        Fifo,
+        none,
+        file,
+        directory,
+        block_device,
+        character_device,
+        symlink,
+        socket,
+        fifo,
+    };
+
+    pub const DeviceClass = enum {
+        none,
+        keyboard,
+        mouse,
+        disk,
+        partition,
+        console,
+        framebuffer,
+        other,
+    };
+
+    pub const DeviceInfo = struct {
+        class: DeviceClass = .none,
+        name: ?[]const u8 = null,
     };
 
     pub const Stat = struct {
-        type: Node.Type = .None,
+        type: Node.Type = .none,
 
         mode: Mode = .{},
         uid: u32 = 0,
@@ -77,6 +94,7 @@ pub const Node = struct {
         blocks: u64 = 0,
         block_size: u64 = 1,
         flags: Node.Flags = .{},
+        device_info: DeviceInfo = .{},
 
         inode: u64 = 0,
     };
@@ -183,14 +201,40 @@ pub const Node = struct {
         return Error.NotImplemented;
     }
 
-    pub fn findRecursive(self: *Node, path: []const u8) !File {}
+    pub fn findRecursive(self: *Node, path: []const u8) !File {
+        var path_tokenizer = std.mem.tokenize(path, "/");
+        // FIXME: this will use insane amounts of stack space (64 * (max_name_len = 256))
+        var node_history: [64]File = undefined;
+        var node_history_pos: usize = 0;
+
+        var next_file = File{.name_ptr = ".", .node = self};
+
+        defer {
+            for (node_history[0..node_history_pos]) |file| {
+                 file.node.close() catch {};
+            }
+        }
+
+        while (true) {
+            const part = path_tokenizer.next() orelse break;
+            if (std.mem.eql(u8, part, ".")) continue;
+            // TODO: the ".." "directory"
+            next_file = try next_file.node.find(part);
+            node_history[node_history_pos] = next_file;
+            node_history_pos += 1;
+            if (node_history_pos == node_history.len) return Error.PathTooLong;
+        }
+
+        if (node_history_pos > 0) node_history_pos -= 1;
+        return next_file;
+    }
 };
 
 pub const File = struct {
     node: *Node,
     name_ptr: ?[]const u8,
-    name_buf: [max_name_len]u8,
-    name_len: usize,
+    name_buf: [max_name_len]u8 = undefined,
+    name_len: usize = 0,
 
     pub fn name(self: File) []const u8 {
         if (self.name_ptr) |name_str| {
@@ -276,6 +320,7 @@ pub const ZeroNode = struct {
         return buffer.len;
     }
 };
+
 /// Read-only node that serves a fixed number of bytes
 // TODO: better name?
 pub const ReadOnlyNode = struct {
@@ -284,7 +329,7 @@ pub const ReadOnlyNode = struct {
     };
 
     pub fn init(buffer: []const u8) Node {
-        var new_node = Node.init(ReadOnlyNode.ops, null, Node.Stat{ .size = buffer.len, .blocks = buffer.len + @sizeOf(Node) }, null);
+        var new_node = Node.init(ReadOnlyNode.ops, null, Node.Stat{ .size = buffer.len, .blocks = buffer.len + @sizeOf(Node), .type = .file }, null);
         new_node.alt_cookie = buffer;
         return new_node;
     }

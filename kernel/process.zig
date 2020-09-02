@@ -55,6 +55,7 @@ pub const Fd = struct {
     };
 
     num: Fd.Num,
+    name: ?[]const u8 = null,
     node: *vfs.Node,
     preopen: bool = false,
     flags: Fd.Flags = .{},
@@ -64,7 +65,19 @@ pub const Fd = struct {
     proc: ?*Process = null,
 
     pub fn write(self: *Fd, buffer: []const u8) !usize {
-        var written = try self.node.write(self.seek_offset, buffer);
+        var written: usize = 0;
+        while (true) {
+            self.proc.?.task().yield();
+            written = self.node.write(self.seek_offset, buffer) catch |err| switch (err) {
+                vfs.Error.Again => {
+                    if (!self.flags.nonblock) continue else return err;
+                },
+                else => {
+                    return err;
+                },
+            };
+            break;
+        }
         self.seek_offset += @truncate(u64, written);
         return written;
     }
@@ -97,7 +110,7 @@ pub const Process = struct {
         fds: []const Fd = &[_]Fd{},
         runtime_arg: RuntimeArg,
 
-        stack_size: usize = 1262144,
+        stack_size: usize = 1048576,
         parent_pid: ?Process.Id = null,
     };
 

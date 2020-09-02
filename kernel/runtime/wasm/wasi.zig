@@ -33,11 +33,38 @@ pub const Preview1 = struct {
         buflen: u32,
     }; // These structs will always be manually padded if needed
 
+    const PrestatDir = packed struct {
+        fd_type: u32 = 0,
+        name_len: u32 = 0,
+    };
+
     const Self = @This();
 
     pub fn proc_exit(ctx: w3.ZigFunctionCtx, args: struct { exit_code: u32 }) !void {
         syscall.exit(myProc(ctx), args.exit_code);
         return w3.Error.Exit;
+    }
+
+    pub fn sched_yield(ctx: w3.ZigFunctionCtx, args: struct {}) !u32 {
+        myProc(ctx).task().yield();
+        return errnoInt(.ESUCCESS);
+    }
+
+    pub fn fd_prestat_get(ctx: w3.ZigFunctionCtx, args: struct { fd: u32, prestat: *align(1) Self.PrestatDir }) !u32 {
+        if (myProc(ctx).open_nodes.get(@truncate(process.Fd.Num, args.fd))) |fd| {
+            if (!fd.preopen) return errnoInt(.ENOTSUP);
+            args.prestat.* = .{ .name_len = if (fd.name != null) @truncate(u32, fd.name.?.len) else 0 };
+            return errnoInt(.ESUCCESS);
+        }
+        return errnoInt(.EBADF);
+    }
+
+    pub fn fd_prestat_dir_name(ctx: w3.ZigFunctionCtx, args: struct { fd: u32, name: []u8 }) !u32 {
+        if (myProc(ctx).open_nodes.get(@truncate(process.Fd.Num, args.fd))) |fd| {
+            std.mem.copy(u8, args.name, if (fd.name != null) fd.name.? else "");
+            return errnoInt(.ESUCCESS);
+        }
+        return errnoInt(.EBADF);
     }
 
     pub fn fd_write(ctx: w3.ZigFunctionCtx, args: struct { fd: u32, iovecs: []align(1) Self.IoVec, written: w3.u32_ptr }) !u32 {

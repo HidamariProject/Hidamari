@@ -249,7 +249,7 @@ pub const ZigFunctionCtx = struct {
                         .Pointer => |ptr| {
                             switch (ptr.size) {
                                 .One, .Many => {
-                                    try boundsCheck(self.memory, self.sp.get(usize, i), 0);
+                                    try boundsCheck(self.memory, self.sp.get(usize, i), @sizeOf(ptr.child));
                                     @field(out, field.name) = @ptrCast(field.field_type, @alignCast(ptr.alignment, &self.memory[self.sp.get(usize, i)]));
                                     i += 1;
                                 },

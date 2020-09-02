@@ -46,7 +46,10 @@ var prochost: process.ProcessHost = undefined;
 var terminated: bool = false;
 
 pub fn timer_tick() void {
-    if (!systemFlags.coop_multitask) prochost.scheduler.yieldCurrent();
+    if (!systemFlags.coop_multitask) {
+        platform.beforeYield();
+        prochost.scheduler.yieldCurrent();
+    }
 }
 
 pub fn main() void {
@@ -83,8 +86,7 @@ pub fn main() void {
     // TODO: spawn kernel thread
     //_ = sched.spawn(null, task.sampleTask, null, 4096) catch unreachable;
 
-    var bin_file = rootfs.find("bin") catch unreachable;
-    var init_file = bin_file.node.find("init") catch unreachable;
+    var init_file = rootfs.findRecursive("/bin/init") catch unreachable;
 
     var init_data = allocator.alloc(u8, init_file.node.stat.size) catch unreachable;
     _ = init_file.node.read(0, init_data) catch unreachable;
@@ -92,7 +94,7 @@ pub fn main() void {
     platform.earlyprintf("Size of /bin/init in bytes: {}.\r\n", .{init_data.len});
 
     var console_node = platform.openConsole();
-    _ = console_node.write(0, "Initialized /dev/console...\r\n") catch unreachable;
+    _ = console_node.write(0, "Initialized /dev/console.\r\n") catch unreachable;
 
     var init_proc_options = process.Process.Arg{
         .parent_pid = task.Task.KernelParentId,
@@ -100,7 +102,7 @@ pub fn main() void {
             .{ .num = 0, .node = &console_node },
             .{ .num = 1, .node = &console_node },
             .{ .num = 2, .node = &console_node },
-            .{ .num = 3, .node = rootfs, .preopen = true },
+            .{ .num = 3, .node = rootfs, .preopen = true, .name = "/" },
         },
         .runtime_arg = .{
             .wasm = .{

@@ -41,7 +41,7 @@ const NodeImpl = struct {
             .inode = in.m_file_index + 2,
             .blocks = in.m_comp_size,
             .size = in.m_uncomp_size,
-            .type = if (in.m_is_directory != 0) .Directory else .File,
+            .type = if (in.m_is_directory != 0) .directory else .file,
             .modify_time = @truncate(i64, in.m_time) * time.ns_per_s,
             .access_time = @truncate(i64, in.m_time) * time.ns_per_s,
             .create_time = @truncate(i64, in.m_time) * time.ns_per_s,
@@ -102,7 +102,7 @@ const NodeImpl = struct {
     }
 
     pub fn read(self: *Node, offset: u64, buffer: []u8) !usize {
-        if (self.stat.type == .Directory) return vfs.Error.NotFile;
+        if (self.stat.type == .directory) return vfs.Error.NotFile;
 
         try lazyExtract(self);
 
@@ -117,7 +117,7 @@ const NodeImpl = struct {
         var node_impl = myImpl(self);
         var fs_impl = myFsImpl(self);
 
-        if (self.stat.type != .Directory) return vfs.Error.NotDirectory;
+        if (self.stat.type != .directory) return vfs.Error.NotDirectory;
 
         var index: u32 = undefined;
 
@@ -168,7 +168,7 @@ const NodeImpl = struct {
     }
 
     pub fn readDir(self: *Node, offset: u64, files: []File) !usize {
-        if (self.stat.type != .Directory) return vfs.Error.NotDirectory;
+        if (self.stat.type != .directory) return vfs.Error.NotDirectory;
         var node_impl = myImpl(self);
         var fs_impl = myFsImpl(self);
 
@@ -270,7 +270,7 @@ const FsImpl = struct {
         var root_node_stat = Node.Stat{
             .flags = .{ .mount_point = true },
             .inode = 1,
-            .type = .Directory,
+            .type = .directory,
             .mode = Node.Mode.all,
             .modify_time = now,
             .create_time = now,
