@@ -24,7 +24,6 @@ void structSanityCheck() {
 	volatile struct __sanityCheckStruct a = __global_sanityCheckStruct;
 	volatile struct __sanityCheckStruct b;
 	volatile static struct __sanityCheckStruct c;
-	c = b; // uninitialized -> local (static) should be OK
 	c = a; // local (static) -> static should be OK
 	b = a; // static -> local (stack) should be OK
 	c = b; // local (stack) -> local (static) should be OK

@@ -7,7 +7,6 @@ const c = @cImport({
 
 // Static info that can (and will) be changed
 
-// Codename シンコウ
 pub const sys_name = "Codename Shinkou";
 pub const release = "0.0.1-alpha";
 

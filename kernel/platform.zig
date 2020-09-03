@@ -11,10 +11,12 @@ pub const impl = switch (builtin.os.tag) {
 pub const init = impl.init;
 pub const earlyprintk = impl.earlyprintk;
 pub const halt = impl.halt;
-pub const setTimer = impl.setTimer;
 pub const openConsole = impl.openConsole;
 pub const beforeYield = impl.beforeYield;
 const late = impl.late;
+
+pub const setTimer = impl.setTimer;
+pub const waitTimer = impl.waitTimer;
 
 pub var internal_malloc = impl.malloc;
 pub var internal_realloc = impl.realloc;

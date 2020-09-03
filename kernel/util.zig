@@ -25,3 +25,7 @@ pub const RefCount = struct {
         self.refs -= 1;
     }
 };
+
+pub inline fn compAssert(comptime v: bool) void {
+    comptime if (!v) @compileError("Assertion failed.");
+}

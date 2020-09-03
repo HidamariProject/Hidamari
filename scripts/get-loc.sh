@@ -1,5 +1,6 @@
 #!/bin/sh
 {
+        echo "build.zig"
 	find apps -iname '*.zig';
 	find kernel -iname '*.zig';
 	find kernel/klibc -iname '*.[ch]';

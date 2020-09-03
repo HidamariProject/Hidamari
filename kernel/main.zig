@@ -12,8 +12,9 @@ const utsname = @import("utsname.zig");
 const tmpfs = @import("fs/tmpfs.zig");
 const zipfs = @import("fs/zipfs.zig");
 
-var systemFlags = .{
+var system_flags = .{
     .coop_multitask = true, // Run in cooperative multitasking mode
+    .save_cpu = true, // Use `hlt` so we don't spike CPU usage
 };
 
 extern fn allSanityChecks() callconv(.C) void;
@@ -46,7 +47,7 @@ var prochost: process.ProcessHost = undefined;
 var terminated: bool = false;
 
 pub fn timer_tick() void {
-    if (!systemFlags.coop_multitask) {
+    if (!system_flags.coop_multitask) {
         platform.beforeYield();
         prochost.scheduler.yieldCurrent();
     }
@@ -75,26 +76,23 @@ pub fn main() void {
     platform.earlyprintf("Size of initial ramdisk in bytes: {}.\r\n", .{dev_initrd.stat.size});
 
     // TODO: support other formats
-    var rootfs = zipfs.Fs.mount(allocator, &dev_initrd, null) catch unreachable;
+    var rootfs = zipfs.Fs.mount(allocator, &dev_initrd, null) catch @panic("Can't mount initrd!");
     platform.earlyprintk("Mounted initial ramdisk.\r\n");
 
     // Setup process host
-    prochost = process.ProcessHost.init(allocator) catch unreachable;
+    prochost = process.ProcessHost.init(allocator) catch @panic("Can't initialize process host!");
 
     platform.setTimer(timer_tick);
 
-    // TODO: spawn kernel thread
-    //_ = sched.spawn(null, task.sampleTask, null, 4096) catch unreachable;
+    var init_file = rootfs.findRecursive("/bin/init") catch @panic("Can't find init binary!");
 
-    var init_file = rootfs.findRecursive("/bin/init") catch unreachable;
-
-    var init_data = allocator.alloc(u8, init_file.node.stat.size) catch unreachable;
+    var init_data = allocator.alloc(u8, init_file.node.stat.size) catch @panic("Can't read init binary!");
     _ = init_file.node.read(0, init_data) catch unreachable;
 
     platform.earlyprintf("Size of /bin/init in bytes: {}.\r\n", .{init_data.len});
 
     var console_node = platform.openConsole();
-    _ = console_node.write(0, "Initialized /dev/console.\r\n") catch unreachable;
+    _ = console_node.write(0, "Initialized /dev/console.\r\n") catch @panic("Can't initialize early console!");
 
     var init_proc_options = process.Process.Arg{
         .parent_pid = task.Task.KernelParentId,
@@ -111,7 +109,7 @@ pub fn main() void {
         },
     };
 
-    _ = prochost.createProcess(init_proc_options) catch @panic("can't create init process!");
+    _ = prochost.createProcess(init_proc_options) catch @panic("Can't create init process!");
 
     while (!terminated) {
         prochost.scheduler.loopOnce();
@@ -124,6 +122,7 @@ pub fn main() void {
                 terminated = true;
             }
         }
+        if (system_flags.save_cpu) platform.waitTimer(1);
     }
     // Should be unreachable;
     @panic("init exited!");

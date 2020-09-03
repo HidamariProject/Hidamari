@@ -12,6 +12,7 @@ export fn __chkstk() callconv(.C) void {}
 // Actually useful stuff: stdlib
 
 export fn exit(code: c_int) callconv(.C) void {
+    platform.earlyprintf("C: exit({})!\n", .{code});
     @panic("exit() function called from C code");
 }
 

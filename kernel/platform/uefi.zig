@@ -19,8 +19,11 @@ var timer_event: uefi.Event = undefined;
 var timer_call: ?fn () void = null;
 var in_timer: bool = false;
 
+var timer_ticks: usize = 0;
+
 pub fn timerCallThunk(event: uefi.Event, context: ?*const c_void) callconv(.C) void {
     if (@atomicRmw(bool, &in_timer, .Xchg, true, .SeqCst)) return;
+    if (timer_ticks > 0) _ = @atomicRmw(usize, &timer_ticks, .Sub, 1, .SeqCst);
     console.keyboardHandler();
     if (timer_call) |func| {
         func();
@@ -30,6 +33,7 @@ pub fn timerCallThunk(event: uefi.Event, context: ?*const c_void) callconv(.C) v
 
 pub fn init() void {
     klibc.notifyInitialization();
+
     const con_out = uefi.system_table.con_out.?;
     const con_in = uefi.system_table.con_in.?;
     _ = uefi.system_table.boot_services.?.setWatchdogTimer(0, 0, 0, null);
@@ -91,6 +95,12 @@ pub fn beforeYield() void {
 
 pub fn setTimer(cb: @TypeOf(timer_call)) void {
     timer_call = cb;
+}
+
+pub fn waitTimer(ticks: usize) void {
+    _ = @atomicRmw(usize, &timer_ticks, .Xchg, ticks, .SeqCst);
+    // TODO: non-x86
+    while (timer_ticks > 0) asm volatile ("hlt");
 }
 
 pub fn getTimeNano() i64 {
