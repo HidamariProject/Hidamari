@@ -12,9 +12,10 @@ const utsname = @import("utsname.zig");
 const tmpfs = @import("fs/tmpfs.zig");
 const zipfs = @import("fs/zipfs.zig");
 
-var system_flags = .{
+var kernel_flags = .{
     .coop_multitask = true, // Run in cooperative multitasking mode
     .save_cpu = true, // Use `hlt` so we don't spike CPU usage
+    .init_args = "init\x00default\x00",
 };
 
 extern fn allSanityChecks() callconv(.C) void;
@@ -47,7 +48,7 @@ var prochost: process.ProcessHost = undefined;
 var terminated: bool = false;
 
 pub fn timer_tick() void {
-    if (!system_flags.coop_multitask) {
+    if (!kernel_flags.coop_multitask) {
         platform.beforeYield();
         prochost.scheduler.yieldCurrent();
     }
@@ -95,6 +96,8 @@ pub fn main() void {
     _ = console_node.write(0, "Initialized /dev/console.\r\n") catch @panic("Can't initialize early console!");
 
     var init_proc_options = process.Process.Arg{
+        .name = "/bin/init",
+        .argv = kernel_flags.init_args,
         .parent_pid = task.Task.KernelParentId,
         .fds = &[_]process.Fd{
             .{ .num = 0, .node = &console_node },
@@ -122,7 +125,7 @@ pub fn main() void {
                 terminated = true;
             }
         }
-        if (system_flags.save_cpu) platform.waitTimer(1);
+        if (kernel_flags.save_cpu) platform.waitTimer(1);
     }
     // Should be unreachable;
     @panic("init exited!");

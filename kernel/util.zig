@@ -29,3 +29,9 @@ pub const RefCount = struct {
 pub inline fn compAssert(comptime v: bool) void {
     comptime if (!v) @compileError("Assertion failed.");
 }
+
+pub inline fn countElem(comptime T: type, arr: []const T, val: T) usize {
+    var ret: usize = 0;
+    for (arr) |elem| { if (elem == val) ret += 1; }
+    return ret;
+}

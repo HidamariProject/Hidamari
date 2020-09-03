@@ -99,6 +99,11 @@ pub const Fd = struct {
         self.seek_offset += @truncate(u64, amount);
         return amount;
     }
+
+    pub fn close(self: *Fd) !void {
+        try self.node.close();
+        if (self.proc) |proc| { proc.allocator.destroy(self); }
+    }
 };
 
 pub const Process = struct {
@@ -106,6 +111,7 @@ pub const Process = struct {
 
     pub const Arg = struct {
         name: []const u8 = "<unnamed>",
+        argv: []const u8 = "<unnamed>",
         credentials: Credentials = .{},
         fds: []const Fd = &[_]Fd{},
         runtime_arg: RuntimeArg,
@@ -145,6 +151,10 @@ pub const Process = struct {
 
         proc.name = try proc.allocator.dupe(u8, arg.name);
         errdefer proc.allocator.free(proc.name);
+
+        proc.argv = try proc.allocator.dupe(u8, arg.argv);
+        errdefer proc.allocator.free(proc.name);
+        proc.argc = util.countElem(u8, arg.argv, '\x00');
 
         proc.credentials = arg.credentials;
 
