@@ -28,13 +28,13 @@ pub const Debug = struct {
 pub const Preview1 = struct {
     pub const namespaces = [_][:0]const u8{ "wasi_snapshot_preview1", "wasi_unstable" };
 
-    const IoVec = packed struct {
+    const IoVec = extern struct {
         bufptr: u32,
         buflen: u32,
     }; // These structs will always be manually padded if needed
 
-    const PrestatDir = packed struct {
-        fd_type: u32 = 0,
+    const PrestatDir = extern struct {
+        fd_type: u8 = 0,
         name_len: u32 = 0,
     };
 
@@ -51,6 +51,7 @@ pub const Preview1 = struct {
     }
 
     pub fn fd_prestat_get(ctx: w3.ZigFunctionCtx, args: struct { fd: u32, prestat: *align(1) Self.PrestatDir }) !u32 {
+        util.compAssert(@sizeOf(Self.PrestatDir) == 8);
         if (myProc(ctx).open_nodes.get(@truncate(process.Fd.Num, args.fd))) |fd| {
             if (!fd.preopen) return errnoInt(.ENOTSUP);
             args.prestat.* = .{ .name_len = if (fd.name != null) @truncate(u32, fd.name.?.len) else 0 };
@@ -91,11 +92,25 @@ pub const Preview1 = struct {
         return errnoInt(.EBADF);
     }
 
-    // WASI only functions
-
     pub fn args_sizes_get(ctx: w3.ZigFunctionCtx, args: struct { argc: w3.u32_ptr, argv_buf_size: w3.u32_ptr }) !u32 {
         args.argc.* = @truncate(u32, myProc(ctx).argc);
         args.argv_buf_size.* = @truncate(u32, myProc(ctx).argv.len);
+
+        return errnoInt(.ESUCCESS);
+    }
+
+    // TODO: make this secure
+    pub fn args_get(ctx: w3.ZigFunctionCtx, args: struct { argv: [*]align(1) u32, argv_buf: u32 }) !u32 {
+        std.mem.copy(u8, ctx.memory[args.argv_buf..], myProc(ctx).argv);
+
+        var i: usize = 0;
+        var it = std.mem.tokenize(myProc(ctx).argv, "\x00");
+        while (true) {
+            args.argv[i] = args.argv_buf + @truncate(u32, it.index);
+
+            _ = it.next() orelse break;
+            i += 1;
+        }
 
         return errnoInt(.ESUCCESS);
     }

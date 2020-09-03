@@ -119,8 +119,8 @@ pub const Process = struct {
     allocator: *std.mem.Allocator = undefined,
 
     name: []const u8 = "<unnamed>",
+    argv: []const u8 = "<unnamed>",
     argc: usize = 1,
-    argv: []const u8 = "<unnamed>\x00",
     credentials: Credentials = .{},
     runtime: Runtime = undefined,
 
