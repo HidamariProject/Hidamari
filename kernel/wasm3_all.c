@@ -2,6 +2,8 @@
 
 #define d_m3Use32BitSlots 1
 
+//#define DEBUG_OPS
+
 #if 0
 #define DEBUG
 //#define d_m3LogOutput 1

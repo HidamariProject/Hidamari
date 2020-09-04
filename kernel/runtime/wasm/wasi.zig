@@ -69,7 +69,10 @@ pub const Preview1 = struct {
             if (myProc(ctx).open_nodes.get(@truncate(process.Fd.Num, args.to))) |to| {
                 to.close() catch |err| return errnoInt(errorToNo(err));
             }
-            // TODO: finish
+            try myProc(ctx).open_nodes.put(@truncate(process.Fd.Num, args.to), from);
+            _ = myProc(ctx).open_nodes.remove(from.num);
+            from.num = @truncate(process.Fd.Num, args.to);
+            return errnoInt(.ESUCCESS);
         }
         return errnoInt(.EBADF);
     }

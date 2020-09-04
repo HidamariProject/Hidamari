@@ -188,6 +188,9 @@ pub const Process = struct {
 
     pub fn deinit(self: *Process) void {
         self.runtime.deinit();
+        for (self.open_nodes.items()) |fd| {
+            fd.value.node.close() catch @panic("Failed to close open node!");
+        }
         self.arena_allocator.deinit();
         self.host.allocator.destroy(self);
     }

@@ -11,6 +11,10 @@
 #include "m3_code.h"
 #include "m3_exec_defs.h"
 
+#ifdef DEBUG
+#define DEBUG_OPS
+#endif
+
 d_m3BeginExternC
 
 enum
@@ -119,7 +123,7 @@ typedef M3Result (* M3Compiler)         (IM3Compilation, m3opcode_t);
 
 typedef struct M3OpInfo
 {
-#ifdef DEBUG
+#ifdef DEBUG_OPS
     const char * const      name;
 #endif
 
@@ -148,7 +152,7 @@ const M3OpInfo* GetOpInfo(m3opcode_t opcode) {
     }
 }
 
-#ifdef DEBUG
+#ifdef DEBUG_OPS
     #define M3OP(...)       { __VA_ARGS__ }
     #define M3OP_RESERVED   { "reserved" }
 #else

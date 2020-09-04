@@ -1814,11 +1814,12 @@ _           (PushRegister (o, op->type));
     }
     else
     {
-#       ifdef DEBUG
-            result = ErrorCompile ("no operation found for opcode", o, "'%s'", op->name);
-#       else
             result = ErrorCompile ("no operation found for opcode", o, "");
-#       endif
+#ifdef DEBUG_OPS
+        __earlyprintk_num(op->type); __earlyprintk(" -> type; name -> ");
+	__earlyprintk(op->name); __earlyprintk(" - opcode error\n");
+        abort();
+#endif
     }
 
     _catch: return result;

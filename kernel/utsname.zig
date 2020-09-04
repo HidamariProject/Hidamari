@@ -7,8 +7,8 @@ const c = @cImport({
 
 // Static info that can (and will) be changed
 
-pub const sys_name = "Codename Shinkou";
-pub const release = "0.0.1-alpha";
+pub const sys_name = "Hidamari";
+pub const release = "0.0.2-alpha";
 
 // Actual code
 

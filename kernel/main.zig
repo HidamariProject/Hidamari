@@ -90,6 +90,7 @@ pub fn main() void {
     var init_data = allocator.alloc(u8, init_file.node.stat.size) catch @panic("Can't read init binary!");
     _ = init_file.node.read(0, init_data) catch unreachable;
 
+
     platform.earlyprintf("Size of /bin/init in bytes: {}.\r\n", .{init_data.len});
 
     var console_node = platform.openConsole();

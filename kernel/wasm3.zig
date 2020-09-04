@@ -20,6 +20,7 @@ pub const Error = error{
     Exit,
     Abort,
     OutOfBounds,
+    NoSuchFunction,
 };
 
 pub const WasmPtr = extern struct { offset: u32 };
@@ -51,6 +52,7 @@ fn initErrorConversionTable() void {
     e(c.m3Err_trapExit, Error.Exit);
     e(c.m3Err_trapAbort, Error.Abort);
     e(c.m3Err_trapOutOfBoundsMemoryAccess, Error.OutOfBounds);
+    e(c.m3Err_functionLookupFailed, Error.NoSuchFunction);
     errorConversionTable = errorConversionTable_back[0..errorConversionTable_len];
 }
 
@@ -68,6 +70,7 @@ fn m3ResultToError(m3res: c.M3Result, comptime T: type) !T {
         if (m3res == entry.a) return entry.b;
     }
 
+    platform.earlyprintf("Warning: can't convert to Zig error: {}\n", .{std.mem.spanZ(m3res)});
     return Error.Unknown;
 }
 

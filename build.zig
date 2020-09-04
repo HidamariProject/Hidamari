@@ -36,7 +36,10 @@ pub fn build(b: *Builder) void {
         inline for (app_names) |app_name| {
             const app = b.addExecutable(app_name, "apps/" ++ app_name ++ "/main.zig");
             app.setTarget(wasiTarget);
-            app.setBuildMode(mode);
+
+            // Due to a bug, we always have to use either `release-safe` or `debug` mode
+            //app.setBuildMode(mode);
+            app.setBuildMode(std.builtin.Mode.ReleaseSafe);
             app.setOutputDir(tempOutputDir);
             apps_step.dependOn(&app.step);
         }
