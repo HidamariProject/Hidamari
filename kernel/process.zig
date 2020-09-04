@@ -54,6 +54,41 @@ pub const Fd = struct {
         nonblock: bool = false,
     };
 
+    pub const Rights = extern union {
+        Flags: packed struct {
+            fd_datasync: bool = true,
+            fd_read: bool = true,
+            fd_seek: bool = true,
+            fd_fdstat_set_flags: bool = true,
+            fd_sync: bool = true,
+            fd_tell: bool = true,
+            fd_write: bool = true,
+            fd_advise: bool = true,
+            fd_allocate: bool = true,
+            path_create_directory: bool = true,
+            path_create_file: bool = true,
+            path_link_source: bool = true,
+            path_link_target: bool = true,
+            path_open: bool = true,
+            fd_readdir: bool = true,
+            path_readlink: bool = true,
+            path_rename_source: bool = true,
+            path_rename_target: bool = true,
+            path_filestat_get: bool = true,
+            path_filestat_set_size: bool = true,
+            path_filestat_set_times: bool = true,
+            fd_filestat_get: bool = true,
+            fd_filestat_set_size: bool = true,
+            fd_filestat_set_times: bool = true,
+            path_symlink: bool = true,
+            path_remove_directory: bool = true,
+            path_unlink_file: bool = true,
+            poll_fd_readwrite: bool = true,
+            sock_shutdown: bool = true,
+        },
+        Int: u64,
+    };
+
     num: Fd.Num,
     name: ?[]const u8 = null,
     node: *vfs.Node,
@@ -102,7 +137,9 @@ pub const Fd = struct {
 
     pub fn close(self: *Fd) !void {
         try self.node.close();
-        if (self.proc) |proc| { proc.allocator.destroy(self); }
+        if (self.proc) |proc| {
+            proc.allocator.destroy(self);
+        }
     }
 };
 

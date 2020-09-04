@@ -163,4 +163,3 @@ pub fn halt() noreturn {
     };
     while (true) {}
 }
-

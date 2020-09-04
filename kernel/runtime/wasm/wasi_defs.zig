@@ -1,4 +1,4 @@
-pub const errno = enum (u32) {
+pub const errno = enum(u32) {
     ESUCCESS,
     E2BIG,
     EACCES,

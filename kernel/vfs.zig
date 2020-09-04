@@ -207,11 +207,11 @@ pub const Node = struct {
         var node_history: [64]File = undefined;
         var node_history_pos: usize = 0;
 
-        var next_file = File{.name_ptr = ".", .node = self};
+        var next_file = File{ .name_ptr = ".", .node = self };
 
         defer {
             for (node_history[0..node_history_pos]) |file| {
-                 file.node.close() catch {};
+                file.node.close() catch {};
             }
         }
 
@@ -320,7 +320,6 @@ pub const ZeroNode = struct {
         return buffer.len;
     }
 };
-
 /// Read-only node that serves a fixed number of bytes
 // TODO: better name?
 pub const ReadOnlyNode = struct {

@@ -32,6 +32,8 @@ pub inline fn compAssert(comptime v: bool) void {
 
 pub inline fn countElem(comptime T: type, arr: []const T, val: T) usize {
     var ret: usize = 0;
-    for (arr) |elem| { if (elem == val) ret += 1; }
+    for (arr) |elem| {
+        if (elem == val) ret += 1;
+    }
     return ret;
 }

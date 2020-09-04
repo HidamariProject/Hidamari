@@ -63,6 +63,9 @@ pub fn main() void {
     allSanityChecks();
     platform.earlyprintk("Tests passed.\r\n");
 
+    var x: process.Fd.Rights = .{ .Flags = .{} };
+    platform.earlyprintf("{}\n", .{x.Int});
+
     // Show kernel information
     var info = utsname.uname();
     platform.earlyprintf("{} {} {} {}\r\n", .{ info.sys_name, info.release, info.version, info.machine });
@@ -89,7 +92,6 @@ pub fn main() void {
 
     var init_data = allocator.alloc(u8, init_file.node.stat.size) catch @panic("Can't read init binary!");
     _ = init_file.node.read(0, init_data) catch unreachable;
-
 
     platform.earlyprintf("Size of /bin/init in bytes: {}.\r\n", .{init_data.len});
 

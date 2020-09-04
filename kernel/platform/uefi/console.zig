@@ -34,7 +34,7 @@ fn basicKeyboardHandler() void {
     inbuf[0] = key.unicode_char;
     _ = std.unicode.utf16leToUtf8(outbuf[0..], inbuf[0..]) catch unreachable;
 
-    _ = console_fifo.write(outbuf[0..]) catch null;  
+    _ = console_fifo.write(outbuf[0..]) catch null;
 }
 
 fn extendedKeyboardHandler() void {
