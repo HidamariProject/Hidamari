@@ -94,6 +94,7 @@ pub const Fd = struct {
     node: *vfs.Node,
     preopen: bool = false,
     flags: Fd.Flags = .{},
+    rights: Fd.Rights = .{ .Flags = .{} },
 
     seek_offset: u64 = 0,
 

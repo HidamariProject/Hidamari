@@ -63,9 +63,6 @@ pub fn main() void {
     allSanityChecks();
     platform.earlyprintk("Tests passed.\r\n");
 
-    var x: process.Fd.Rights = .{ .Flags = .{} };
-    platform.earlyprintf("{}\n", .{x.Int});
-
     // Show kernel information
     var info = utsname.uname();
     platform.earlyprintf("{} {} {} {}\r\n", .{ info.sys_name, info.release, info.version, info.machine });
