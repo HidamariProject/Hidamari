@@ -16,9 +16,9 @@ pub fn init() void {
 
 pub fn tick() void {
     // TODO: probably should use atomics for this
-    clock.real += timer_interval;
-    clock.monotonic += timer_interval;
-    clock.uptime += timer_interval;
+    _ = @atomicRmw(i64, &clock.real, .Add, timer_interval, .SeqCst);
+    _ = @atomicRmw(i64, &clock.monotonic, .Add, timer_interval, .SeqCst);
+    _ = @atomicRmw(i64, &clock.uptime, .Add, timer_interval, .SeqCst);
 }
 
 pub fn getClockNano(clock_name: anytype) i64 {

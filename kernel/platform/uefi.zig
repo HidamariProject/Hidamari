@@ -15,7 +15,7 @@ var exitedBootServices = false;
 
 const Error = error{UefiError};
 
-const timer_interval = 1000000; // Given in nanoseconds
+const timer_interval = 10000000; // Given in nanoseconds
 var timer_event: uefi.Event = undefined;
 var timer_call: ?fn () void = null;
 var in_timer: bool = false;

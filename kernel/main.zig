@@ -48,8 +48,9 @@ const initrd_zip = @embedFile("../output/temp/initrd.zip");
 var prochost: process.ProcessHost = undefined;
 var terminated: bool = false;
 
-pub fn timer_tick() void {
+pub fn timerTick() void {
     time.tick();
+
     if (!kernel_flags.coop_multitask) {
         platform.beforeYield();
         prochost.scheduler.yieldCurrent();
@@ -89,7 +90,7 @@ pub fn main() void {
     // Setup process host
     prochost = process.ProcessHost.init(allocator) catch @panic("Can't initialize process host!");
 
-    platform.setTimer(timer_tick);
+    platform.setTimer(timerTick);
 
     var init_file = rootfs.findRecursive("/bin/init") catch @panic("Can't find init binary!");
 
