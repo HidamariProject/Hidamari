@@ -1,4 +1,4 @@
-pub const errno = enum(u32) {
+pub const Errno = enum(u32) {
     ESUCCESS,
     E2BIG,
     EACCES,
@@ -78,11 +78,19 @@ pub const errno = enum(u32) {
     ENOTCAPABLE,
 };
 
-pub inline fn errnoInt(err: errno) u32 {
+pub const Clock = enum(u32) {
+    realtime,
+    monotonic,
+    process_cputime,
+    thread_cputime,
+    uptime, // Extension
+};
+
+pub inline fn errnoInt(err: Errno) u32 {
     return @enumToInt(err);
 }
 
-pub inline fn errorToNo(err: anyerror) errno {
+pub inline fn errorToNo(err: anyerror) Errno {
     return switch (err) {
         error.Success, error.None => .ESUCCESS,
         error.BadFd => .EBADF,

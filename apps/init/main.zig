@@ -25,6 +25,8 @@ pub fn main() !u8 {
         _ = try stdout.write("\n");
     }
 
+    try stdout.print("System time: {}\n", .{std.time.timestamp()});
+
     var buf: [100]u8 = undefined;
 
     while (true) {
@@ -34,6 +36,7 @@ pub fn main() !u8 {
             _ = try stdout.write(line);
             _ = try stdout.write("\n");
             if (std.mem.eql(u8, line, "panic")) @panic("panic()'ing now");
+            if (std.mem.eql(u8, line, "time")) try stdout.print("System time: {}\n", .{std.time.timestamp()});
         }
     }
     return 42;

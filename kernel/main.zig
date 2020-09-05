@@ -6,6 +6,7 @@ const w3 = @import("wasm3.zig");
 const vfs = @import("vfs.zig");
 const task = @import("task.zig");
 const process = @import("process.zig");
+const time = @import("time.zig");
 
 const utsname = @import("utsname.zig");
 
@@ -48,6 +49,7 @@ var prochost: process.ProcessHost = undefined;
 var terminated: bool = false;
 
 pub fn timer_tick() void {
+    time.tick();
     if (!kernel_flags.coop_multitask) {
         platform.beforeYield();
         prochost.scheduler.yieldCurrent();
@@ -64,9 +66,13 @@ pub fn main() void {
     platform.earlyprintk("Tests passed.\r\n");
 
     // Show kernel information
+    time.init();
+
     var info = utsname.uname();
     platform.earlyprintf("{} {} {} {}\r\n", .{ info.sys_name, info.release, info.version, info.machine });
     platform.earlyprintk("(C) 2020 Ronsor Labs. This software is protected by domestic and international copyright law.\r\n\r\n");
+    platform.earlyprintf("Boot timestamp: {}.\r\n", .{ time.getClock(.real) });
+
 
     // Create allocator. TODO: good one
     const static_size = 32 * 1024 * 1024;

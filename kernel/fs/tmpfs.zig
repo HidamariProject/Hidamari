@@ -1,4 +1,5 @@
 const std = @import("std");
+const time = @import("../time.zig");
 const platform = @import("../platform.zig");
 
 const vfs = @import("../vfs.zig");
@@ -105,7 +106,7 @@ const NodeImpl = struct {
 
             std.mem.copy(u8, buffer, data[trueOff..trueEnd]);
 
-            self.stat.access_time = platform.getTimeNano();
+            self.stat.access_time = time.getClockNano(.real);
             return trueEnd - trueOff;
         }
         return vfs.Error.NotFile;
@@ -124,7 +125,7 @@ const NodeImpl = struct {
                 trueData = try fs_impl.file_allocator.realloc(trueData, trueEnd);
             std.mem.copy(u8, trueData[trueOff..trueEnd], buffer);
 
-            var now = platform.getTimeNano();
+            var now = time.getClockNano(.real);
 
             self.stat.access_time = now;
             self.stat.modify_time = now;
@@ -159,7 +160,7 @@ const NodeImpl = struct {
                 if (std.mem.eql(u8, child.?.name(), name)) return vfs.Error.FileExists;
             }
 
-            var now = platform.getTimeNano();
+            var now = time.getClockNano(.real);
 
             var new_node = try NodeImpl.init(self.file_system.?, typ, .{ .mode = mode, .links = 1, .access_time = now, .create_time = now, .modify_time = now });
             errdefer NodeImpl.deinit(new_node);
@@ -272,7 +273,7 @@ const FsImpl = struct {
 
         self.cookie = util.asCookie(fs_impl);
 
-        var now = platform.getTimeNano();
+        var now = time.getClockNano(.real);
 
         var root_node = try NodeImpl.init(self, .directory, .{ .flags = .{ .mount_point = true }, .create_time = now, .access_time = now, .modify_time = now });
         return root_node;

@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const fmt = std.fmt;
 const util = @import("util.zig");
 const platform = @import("platform.zig");
@@ -70,7 +71,7 @@ fn m3ResultToError(m3res: c.M3Result, comptime T: type) !T {
         if (m3res == entry.a) return entry.b;
     }
 
-    platform.earlyprintf("Warning: can't convert to Zig error: {}\n", .{std.mem.spanZ(m3res)});
+    if (builtin.mode == .Debug) platform.earlyprintf("Warning: can't convert to Zig error: {}\n", .{std.mem.spanZ(m3res)});
     return Error.Unknown;
 }
 
@@ -126,6 +127,7 @@ fn zigToWasmType(comptime T: type) u8 {
         WasmPtr => '*',
         else => switch (@typeInfo(T)) {
             .Pointer => '*',
+            .Enum => |enm| zigToWasmType(enm.tag_type),
             else => @compileError("Invalid type"),
         },
     };
@@ -265,6 +267,11 @@ pub const ZigFunctionCtx = struct {
                                 },
                                 else => @compileError("Invalid pointer type"),
                             }
+                        },
+                        .Enum => |enm| {
+                            // TODO: check if value is valid
+                            @field(out, field.name) = @intToEnum(field.field_type, self.sp.get(enm.tag_type, i));
+                            i += 1;
                         },
                         else => @compileError("Invalid type"),
                     }

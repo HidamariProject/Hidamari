@@ -15,6 +15,7 @@ var exitedBootServices = false;
 
 const Error = error{UefiError};
 
+const timer_interval = 1000000; // Given in nanoseconds
 var timer_event: uefi.Event = undefined;
 var timer_call: ?fn () void = null;
 var in_timer: bool = false;
@@ -24,10 +25,12 @@ var timer_ticks: usize = 0;
 pub fn timerCallThunk(event: uefi.Event, context: ?*const c_void) callconv(.C) void {
     if (@atomicRmw(bool, &in_timer, .Xchg, true, .SeqCst)) return;
     if (timer_ticks > 0) _ = @atomicRmw(usize, &timer_ticks, .Sub, 1, .SeqCst);
+
     console.keyboardHandler();
     if (timer_call) |func| {
         func();
     }
+
     _ = @atomicRmw(bool, &in_timer, .Xchg, false, .SeqCst);
 }
 
@@ -40,7 +43,7 @@ pub fn init() void {
     _ = con_out.reset(false);
     _ = con_in._reset(con_in, false);
     _ = uefi.system_table.boot_services.?.createEvent(uefi.tables.BootServices.event_timer | uefi.tables.BootServices.event_notify_signal, uefi.tables.BootServices.tpl_notify, timerCallThunk, null, &timer_event);
-    _ = uefi.system_table.boot_services.?.setTimer(timer_event, uefi.tables.TimerDelay.TimerPeriodic, 1000);
+    _ = uefi.system_table.boot_services.?.setTimer(timer_event, uefi.tables.TimerDelay.TimerPeriodic, timer_interval / 100); // UEFI spec: has to be in increments of 100ns
 
     console.init();
 }
@@ -101,6 +104,10 @@ pub fn waitTimer(ticks: usize) void {
     _ = @atomicRmw(usize, &timer_ticks, .Xchg, ticks, .SeqCst);
     // TODO: non-x86
     while (timer_ticks > 0) asm volatile ("hlt");
+}
+
+pub fn getTimerInterval() i64 {
+    return timer_interval;
 }
 
 pub fn getTimeNano() i64 {

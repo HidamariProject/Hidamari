@@ -1,6 +1,7 @@
 const std = @import("std");
 const process = @import("../../process.zig");
 const platform = @import("../../platform.zig");
+const time = @import("../../time.zig");
 const util = @import("../../util.zig");
 const w3 = @import("../../wasm3.zig");
 const syscall = @import("../../syscall.zig");
@@ -50,6 +51,16 @@ pub const Preview1 = struct {
         return errnoInt(.ESUCCESS);
     }
 
+    pub fn clock_time_get(ctx: w3.ZigFunctionCtx, args: struct { clock_id: Clock, precision: i64, timestamp: w3.u64_ptr }) !u32 {
+        args.timestamp.* = @bitCast(u64, switch (args.clock_id) {
+            .realtime => time.getClockNano(.real),
+            .monotonic => time.getClockNano(.monotonic),
+            .uptime => time.getClockNano(.uptime),
+            else => { return errnoInt(.EINVAL); }
+        });
+        return errnoInt(.ESUCCESS);
+    }
+
     pub fn fd_prestat_get(ctx: w3.ZigFunctionCtx, args: struct { fd: u32, prestat: *align(1) Self.PrestatDir }) !u32 {
         util.compAssert(@sizeOf(Self.PrestatDir) == 8);
 
@@ -58,6 +69,15 @@ pub const Preview1 = struct {
         if (myProc(ctx).open_nodes.get(@truncate(process.Fd.Num, args.fd))) |fd| {
             if (!fd.preopen) return errnoInt(.ENOTSUP);
             args.prestat.* = .{ .name_len = if (fd.name != null) @truncate(u32, fd.name.?.len) else 0 };
+            return errnoInt(.ESUCCESS);
+        }
+        return errnoInt(.EBADF);
+    }
+
+    pub fn fd_prestat_dir_name(ctx: w3.ZigFunctionCtx, args: struct { fd: u32, name: []u8 }) !u32 {
+        myProc(ctx).task().yield();
+        if (myProc(ctx).open_nodes.get(@truncate(process.Fd.Num, args.fd))) |fd| {
+            std.mem.copy(u8, args.name, if (fd.name != null) fd.name.? else "");
             return errnoInt(.ESUCCESS);
         }
         return errnoInt(.EBADF);
@@ -72,15 +92,6 @@ pub const Preview1 = struct {
             try myProc(ctx).open_nodes.put(@truncate(process.Fd.Num, args.to), from);
             _ = myProc(ctx).open_nodes.remove(from.num);
             from.num = @truncate(process.Fd.Num, args.to);
-            return errnoInt(.ESUCCESS);
-        }
-        return errnoInt(.EBADF);
-    }
-
-    pub fn fd_prestat_dir_name(ctx: w3.ZigFunctionCtx, args: struct { fd: u32, name: []u8 }) !u32 {
-        myProc(ctx).task().yield();
-        if (myProc(ctx).open_nodes.get(@truncate(process.Fd.Num, args.fd))) |fd| {
-            std.mem.copy(u8, args.name, if (fd.name != null) fd.name.? else "");
             return errnoInt(.ESUCCESS);
         }
         return errnoInt(.EBADF);

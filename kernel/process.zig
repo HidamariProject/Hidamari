@@ -6,7 +6,7 @@ const task = @import("task.zig");
 
 const wasm_rt = @import("runtime/wasm.zig");
 
-const Error = error{NotImplemented};
+const Error = error{NotImplemented, NotCapable};
 
 pub const RuntimeType = enum {
     wasm,
@@ -100,7 +100,19 @@ pub const Fd = struct {
 
     proc: ?*Process = null,
 
+    pub fn checkRights(self: Fd, comptime rights: anytype) !void {
+        inline for (rights) |right| {
+             if (!@field(self.rights.Flags, right)) return Error.NotCapable;
+        }
+    }
+ 
+    pub fn open(self: *Fd, buffer: []const u8) !*Fd {
+
+    }
+
     pub fn write(self: *Fd, buffer: []const u8) !usize {
+        try self.checkRights(.{"fd_write"});
+
         var written: usize = 0;
         while (true) {
             self.proc.?.task().yield();
@@ -119,6 +131,8 @@ pub const Fd = struct {
     }
 
     pub fn read(self: *Fd, buffer: []u8) !usize {
+        try self.checkRights(.{"fd_read"});
+
         var amount: usize = 0;
         while (true) {
             self.proc.?.task().yield();
@@ -154,7 +168,7 @@ pub const Process = struct {
         fds: []const Fd = &[_]Fd{},
         runtime_arg: RuntimeArg,
 
-        stack_size: usize = 1048576,
+        stack_size: usize = 131072,
         parent_pid: ?Process.Id = null,
     };
 

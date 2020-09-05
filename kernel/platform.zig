@@ -17,6 +17,7 @@ const late = impl.late;
 
 pub const setTimer = impl.setTimer;
 pub const waitTimer = impl.waitTimer;
+pub const getTimerInterval = impl.getTimerInterval;
 
 pub var internal_malloc = impl.malloc;
 pub var internal_realloc = impl.realloc;
