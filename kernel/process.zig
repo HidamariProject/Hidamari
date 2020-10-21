@@ -49,42 +49,55 @@ pub const Credentials = struct {
 
 pub const Fd = struct {
     pub const Num = u32;
+    // No more than 65536 open Fds
+    pub const max_num: Fd.Num = 65536;
+
     pub const Flags = struct {
         sync: bool = false,
         nonblock: bool = false,
     };
 
+    pub const OpenFlags = extern union {
+        Flags: packed struct {
+            truncate: bool = false,
+            exclusive: bool = false,
+            directory: bool = false,
+            create: bool = false,
+        },
+        Int: u16,
+    };
+
     pub const Rights = extern union {
         Flags: packed struct {
-            fd_datasync: bool = true,
-            fd_read: bool = true,
-            fd_seek: bool = true,
-            fd_fdstat_set_flags: bool = true,
-            fd_sync: bool = true,
-            fd_tell: bool = true,
-            fd_write: bool = true,
-            fd_advise: bool = true,
-            fd_allocate: bool = true,
-            path_create_directory: bool = true,
-            path_create_file: bool = true,
-            path_link_source: bool = true,
-            path_link_target: bool = true,
-            path_open: bool = true,
-            fd_readdir: bool = true,
-            path_readlink: bool = true,
-            path_rename_source: bool = true,
-            path_rename_target: bool = true,
-            path_filestat_get: bool = true,
-            path_filestat_set_size: bool = true,
-            path_filestat_set_times: bool = true,
-            fd_filestat_get: bool = true,
-            fd_filestat_set_size: bool = true,
-            fd_filestat_set_times: bool = true,
-            path_symlink: bool = true,
-            path_remove_directory: bool = true,
-            path_unlink_file: bool = true,
-            poll_fd_readwrite: bool = true,
             sock_shutdown: bool = true,
+            poll_fd_readwrite: bool = true,
+            path_unlink_file: bool = true,
+            path_remove_directory: bool = true,
+            path_symlink: bool = true,
+            fd_filestat_set_times: bool = true,
+            fd_filestat_set_size: bool = true,
+            fd_filestat_get: bool = true,
+            path_filestat_set_times: bool = true,
+            path_filestat_set_size: bool = true,
+            path_filestat_get: bool = true,
+            path_rename_target: bool = true,
+            path_rename_source: bool = true,
+            path_readlink: bool = true,
+            fd_readdir: bool = true,
+            path_open: bool = true,
+            path_link_target: bool = true,
+            path_link_source: bool = true,
+            path_create_file: bool = true,
+            path_create_directory: bool = true,
+            fd_allocate: bool = true,
+            fd_advise: bool = true,
+            fd_write: bool = true,
+            fd_tell: bool = true,
+            fd_sync: bool = true,
+            fd_fdstat_set_flags: bool = true,
+            fd_seek: bool = true,
+            fd_read: bool = true,
+            fd_datasync: bool = true,
         },
         Int: u64,
     };
@@ -94,7 +107,9 @@ pub const Fd = struct {
     node: *vfs.Node,
     preopen: bool = false,
     flags: Fd.Flags = .{},
+    open_flags: Fd.OpenFlags = .{ .Flags = .{} },
     rights: Fd.Rights = .{ .Flags = .{} },
+    inheriting_rights: Fd.Rights = .{ .Flags = .{} },
 
     seek_offset: u64 = 0,
 
@@ -106,7 +121,43 @@ pub const Fd = struct {
         }
     }
  
-    pub fn open(self: *Fd, buffer: []const u8) !*Fd {
+    pub fn open(self: *Fd, path: []const u8, oflags: Fd.OpenFlags, rights_base: Fd.Rights, inheriting_rights: Fd.Rights, fdflags: Fd.Flags, mode: vfs.FileMode) !*Fd {
+        try self.checkRights(.{"path_open"});
+
+        var ret_node: ?*Node = self.node.findRecursive(path) catch |err| {
+            if (!oflags.Flags.create || err != vfs.NoSuchFile) return err;
+            ret_node = null;
+        };
+        errdefer if (ret_node != null) ret_node.?.close();
+
+        if (ret_node) |ret_node_tmp| {
+           if (oflags.Flags.exclusive) return vfs.FileExists;
+           if (oflags.Flags.directory && ret_node_tmp.stat.type != .directory) return vfs.NotDirectory;
+        } else if (oflags.Flags.create) {
+           var parent_dir = vfs.dirname(path);
+           var parent_node: *Node = if (parent_dir.len == 0) self.node else try self.node.findRecursive(parent_dir);
+           ret_node = try parent_node.create(vfs.basename(path), if (oflags.Flags.directory) .directory else .file, mode);
+        } else {
+           unreachable;
+        }
+
+        // TODO: truncate
+
+        var new_fd = try self.proc.?.allocator.create(Fd);
+        errdefer self.proc.?.allocator.destroy(new_fd);
+
+        // TODO: handle rights properly
+        new_fd .* = .{ .proc = self.proc, .node = ret_node.?, .flags = fdflags, .rights = rights_base, .inheriting_rights = inheriting_rights, .num = undefined };
+
+        var fd_num: Fd.Num = 0;
+        while (fd_num < Fd.max_num) {
+            new_fd.num = fd_num
+
+            self.proc.?.open_nodes.putNoClobber(new_fd.num, new_fd) catch { fd_num += 1; continue; }
+            break;
+        }
+
+        return new_fd;
 
     }
 

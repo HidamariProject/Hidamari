@@ -1,4 +1,4 @@
-const std = @import("std");
+gconst std = @import("std");
 const process = @import("../../process.zig");
 const platform = @import("../../platform.zig");
 const time = @import("../../time.zig");
@@ -21,8 +21,14 @@ pub const Debug = struct {
         platform.earlyprintk(args.string);
     }
 
-    pub fn read_kmem(ctx: w3.ZigFunctionCtx, args: struct {}) !void {
-        @panic("Unimplemented!");
+    pub fn read_kmem(ctx: w3.ZigFunctionCtx, args: struct { phys_addr: u64, buffer: []u8 }) !void {
+        var ptr = @intToPtr([*]u8, @truncate(usize, phys_addr));
+        std.mem.copy(u8, buffer, ptr[0..buffer.len]);
+    }
+
+    pub fn write_kmem(ctx: w3.ZigFunctionCtx, args: struct { phys_addr: u64, buffer: []u8 }) !void {
+        var ptr = @intToPtr([*]u8, @truncate(usize, phys_addr));
+        std.mem.copy(u8, ptr[0..buffer.len], buffer);
     }
 };
 

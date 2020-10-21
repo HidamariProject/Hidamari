@@ -7,3 +7,4 @@ zig-cache/
 NvVars
 output/rootfs/*
 output/temp/*
+*.swp
